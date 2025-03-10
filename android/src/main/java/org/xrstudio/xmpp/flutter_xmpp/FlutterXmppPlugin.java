@@ -6,6 +6,9 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.util.Log;
 
+import org.jivesoftware.smack.SmackException;
+import org.jivesoftware.smack.XMPPException;
+
 import androidx.annotation.NonNull;
 
 import org.xrstudio.xmpp.flutter_xmpp.Connection.FlutterXmppConnection;
@@ -16,6 +19,9 @@ import org.xrstudio.xmpp.flutter_xmpp.Utils.Constants;
 import org.xrstudio.xmpp.flutter_xmpp.Utils.Utils;
 import org.xrstudio.xmpp.flutter_xmpp.managers.MAMManager;
 
+import android.os.Bundle;
+
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -30,7 +36,17 @@ import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
 
-public class FlutterXmppPlugin implements MethodCallHandler, FlutterPlugin, ActivityAware, EventChannel.StreamHandler {
+import androidx.lifecycle.DefaultLifecycleObserver;
+import androidx.lifecycle.Lifecycle;
+import androidx.lifecycle.LifecycleOwner;
+import androidx.lifecycle.LifecycleObserver;
+import androidx.lifecycle.ProcessLifecycleOwner;
+
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+public class FlutterXmppPlugin implements MethodCallHandler, FlutterPlugin, ActivityAware, EventChannel.StreamHandler, DefaultLifecycleObserver {
+
 
     public static final Boolean DEBUG = true;
     private static Context activity;
@@ -403,6 +419,31 @@ public class FlutterXmppPlugin implements MethodCallHandler, FlutterPlugin, Acti
         logout();
         method_channel.setMethodCallHandler(null);
         Utils.printLog(" onDetachedFromEngine: ");
+    }
+
+    @Override
+    public void onResume(@NonNull LifecycleOwner owner)  {
+        Utils.printLog("onresume called");
+       // Create a single-threaded Executor
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+
+    // Run the reconnect operation in a background thread
+    executor.execute(new Runnable() {
+        @Override
+        public void run() {
+            try {
+                FlutterXmppConnection.reconnect();
+            } catch (Exception e) {
+                e.printStackTrace();
+                // Handle any exceptions related to the reconnect
+            }
+        }
+    });
+
+    // Optional: Shut down the executor after the task is done
+    executor.shutdown();
+
+        checkAndReConnect();
     }
 
     // stream
@@ -787,6 +828,44 @@ public class FlutterXmppPlugin implements MethodCallHandler, FlutterPlugin, Acti
             i.putExtra(Constants.AUTOMATIC_RECONNECTION, automaticReconnection);
             activity.startService(i);
         }
+    }
+
+    // login
+    private void checkAndReConnect() {
+         Utils.printLog("checkAndReConnect called");
+         Utils.printLog(FlutterXmppConnectionService.getState().toString());
+        // Check if the user is already connected or not ? if not then start login process.
+        if ( (FlutterXmppConnectionService.getState().equals(ConnectionState.DISCONNECTED)) || FlutterXmppConnectionService.getState().equals(ConnectionState.FAILED) ) {
+            Utils.printLog("checkAndReConnect trying");
+            Utils.printLog(jid_user);
+            Utils.printLog(password);
+            if(jid_user == null || password == null || jid_user == "" || password == ""){
+                return;
+            }
+            stopRunningService();
+            Utils.printLog("checkAndReConnect trying login");
+
+
+            Utils.broadcastConnectionMessageToFlutter(activity,ConnectionState.CONNECTING, "Connecting to chat server");
+            Utils.printLog("checkAndReConnect() : Connecting to chat server ");
+
+
+            Intent i = new Intent(activity, FlutterXmppConnectionService.class);
+            i.putExtra(Constants.JID_USER, jid_user);
+            i.putExtra(Constants.PASSWORD, password);
+            i.putExtra(Constants.HOST, host);
+            i.putExtra(Constants.PORT, Constants.PORT_NUMBER);
+            i.putExtra(Constants.AUTO_DELIVERY_RECEIPT, autoDeliveryReceipt);
+            i.putExtra(Constants.REQUIRE_SSL_CONNECTION, requireSSLConnection);
+            i.putExtra(Constants.USER_STREAM_MANAGEMENT, useStreamManagement);
+            i.putExtra(Constants.AUTOMATIC_RECONNECTION, automaticReconnection);
+            activity.startService(i);
+        }
+    }
+
+    private void stopRunningService(){
+        Intent i1 = new Intent(activity, FlutterXmppConnectionService.class);
+        activity.stopService(i1);
     }
 
     private void logout() {
