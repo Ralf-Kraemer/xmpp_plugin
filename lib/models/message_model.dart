@@ -48,20 +48,25 @@ class MessageChat {
   }
 
   factory MessageChat.fromJson(dynamic eventData) {
-    return MessageChat(
-      customText: eventData['customText'] ?? '',
-      from: eventData['from'] ?? '',
-      senderJid: eventData['senderJid'] ?? '',
-      time: eventData['time'] ?? '0',
-      isReadSent: eventData['isReadSent'] ?? 0,
-      id: eventData['id'] ?? '',
-      type: eventData['type'] ?? '',
-      body: eventData['body'] ?? '',
-      msgtype: eventData['msgtype'] ?? '',
-      bubbleType: eventData['bubbleType'] ?? '',
-      mediaURL: eventData['mediaURL'] ?? '',
-      delayTime: eventData['delayTime'] ?? '',
-      chatStateType: eventData['chatStateType'] ?? '',
-    );
-  }
+      if (eventData == null || eventData is! Map<String, dynamic>) {
+        return MessageChat();
+      }
+
+      return MessageChat(
+        customText: eventData['customText']?.toString() ?? '',
+        from: eventData['from']?.toString() ?? '',
+        senderJid: eventData['senderJid']?.toString() ?? '',
+        time: eventData['time']?.toString() ?? '0',
+        isReadSent: eventData['isReadSent'] is int ? eventData['isReadSent'] : 0,
+        id: eventData['id']?.toString() ?? '',
+        type: eventData['type']?.toString() ?? '',
+        body: eventData['body']?.toString() ?? '',
+        msgtype: eventData['msgtype']?.toString() ?? '',
+        bubbleType: eventData['bubbleType']?.toString() ?? '',
+        mediaURL: eventData['mediaURL']?.toString() ?? '',
+        delayTime: eventData['delayTime']?.toString() ?? '',
+        chatStateType: eventData['chatStateType']?.toString() ?? '',
+      );
+}
+
 }
