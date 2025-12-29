@@ -1,13 +1,11 @@
 import 'dart:async';
 import 'dart:developer';
-
 import 'package:flutter/services.dart';
 import 'package:xmpp_plugin/ennums/xmpp_connection_state.dart';
 import 'package:xmpp_plugin/error_response_event.dart';
 import 'package:xmpp_plugin/message_event.dart';
 import 'package:xmpp_plugin/models/message_model.dart';
 import 'package:xmpp_plugin/success_response_event.dart';
-
 import 'models/chat_state_model.dart';
 import 'models/connection_event.dart';
 import 'models/present_mode.dart';
@@ -26,12 +24,9 @@ abstract class DataChangeEvents {
 class XmppConnection {
   static const MethodChannel _channel = MethodChannel('flutter_xmpp/method');
   static const EventChannel _eventChannel = EventChannel('flutter_xmpp/stream');
-  static const EventChannel _successEventChannel =
-      EventChannel('flutter_xmpp/success_event_stream');
-  static const EventChannel _connectionEventChannel =
-      EventChannel('flutter_xmpp/connection_event_stream');
-  static const EventChannel _errorEventChannel =
-      EventChannel('flutter_xmpp/error_event_stream');
+  static const EventChannel _successEventChannel = EventChannel('flutter_xmpp/success_event_stream');
+  static const EventChannel _connectionEventChannel = EventChannel('flutter_xmpp/connection_event_stream');
+  static const EventChannel _errorEventChannel = EventChannel('flutter_xmpp/error_event_stream');
 
   static late StreamSubscription _streamGetMsg;
   static late StreamSubscription _successEventStream;
@@ -42,11 +37,13 @@ class XmppConnection {
   final Set<String> _receivedMessageIds = {};
 
   final dynamic auth;
+  final bool autoReconnect;
+
   XmppConnectionState connectionState = XmppConnectionState.disconnected;
 
-  XmppConnection(this.auth);
+  XmppConnection(this.auth, {this.autoReconnect = true});
 
-  /// Listener management
+  // ------------------- Listener management -------------------
   static void addListener(DataChangeEvents listener) {
     if (!_listeners.contains(listener)) _listeners.add(listener);
   }
@@ -59,11 +56,11 @@ class XmppConnection {
     _listeners.clear();
   }
 
-  /// Core login/logout
+  // ------------------- Core methods -------------------
   Future<void> login() async {
     try {
       await _channel.invokeMethod('login', auth);
-      await enableMessageCarbons(); // Enable XEP-0280
+      await enableMessageCarbons(); // XEP-0280
     } on PlatformException catch (e) {
       log('Login failed: ${e.message}');
       rethrow;
@@ -80,51 +77,53 @@ class XmppConnection {
     }
   }
 
-  /// Message sending
+  // ------------------- Message operations -------------------
   Future<String> sendMessage(String toJid, String body, String id, int time) async {
     final params = {"to_jid": toJid, "body": body, "id": id, "time": time.toString()};
-    _logMethodCall('send_message', params);
-    try {
-      return await _channel.invokeMethod('send_message', params).timeout(const Duration(seconds: 10));
-    } catch (e) {
-      log('Send message failed: $e');
-      return 'error';
-    }
+    return _invokeWithTimeout('send_message', params);
   }
 
   Future<String> sendGroupMessage(String toJid, String body, String id, int time) async {
     final params = {"to_jid": toJid, "body": body, "id": id, "time": time.toString()};
-    _logMethodCall('send_group_message', params);
-    try {
-      return await _channel.invokeMethod('send_group_message', params).timeout(const Duration(seconds: 10));
-    } catch (e) {
-      log('Send group message failed: $e');
-      return 'error';
-    }
+    return _invokeWithTimeout('send_group_message', params);
   }
 
   Future<String> readMessage(String toJid, String id) async {
     final params = {"to_jid": toJid, "id": id};
-    _logMethodCall('read_message', params);
+    return _invokeWithTimeout('read_message', params);
+  }
+
+  Future<String> _invokeWithTimeout(String method, dynamic params) async {
+    _logMethodCall(method, params);
     try {
-      return await _channel.invokeMethod('read_message', params).timeout(const Duration(seconds: 10));
+      return await _channel.invokeMethod(method, params).timeout(const Duration(seconds: 10));
     } catch (e) {
-      log('Read message failed: $e');
+      log('$method failed: $e');
       return 'error';
     }
   }
 
-  /// Enable Message Carbons (XEP-0280)
+  // ------------------- Advanced XMPP Features -------------------
   Future<void> enableMessageCarbons() async {
     try {
       await _channel.invokeMethod('enableMessageCarbons');
       log('Message Carbons enabled');
     } on PlatformException catch (e) {
-      log('Failed to enable message carbons: ${e.message}');
+      log('Failed to enable Message Carbons: ${e.message}');
     }
   }
 
-  /// Presence & Typing
+  Future<List<MessageChat>> requestArchivedMessages() async {
+    try {
+      final result = await _channel.invokeMethod('requestArchivedMessages');
+      if (result is List) return result.map((e) => MessageChat.fromJson(e)).toList();
+      return [];
+    } catch (e) {
+      log('Failed to retrieve archived messages: $e');
+      return [];
+    }
+  }
+
   Future<void> changeTypingStatus(String userJid, String typingStatus) async {
     await _channel.invokeMethod('change_typing_status', {"userJid": userJid, "typingStatus": typingStatus});
   }
@@ -133,37 +132,25 @@ class XmppConnection {
     await _channel.invokeMethod('change_presence_type', {"presenceType": presenceType, "presenceMode": presenceMode});
   }
 
-  /// Start listening to events
+  // ------------------- Event handling -------------------
   Future<void> start(Function onError) async {
     _streamGetMsg = _eventChannel.receiveBroadcastStream().listen(
-      (data) => _handleIncomingEvent(data),
+      _handleIncomingEvent,
       onError: onError,
     );
 
-    _connectionEventStream =
-        _connectionEventChannel.receiveBroadcastStream().listen(
-      (data) {
-        final event = ConnectionEvent.fromJson(data);
-        _handleConnectionEvent(event);
-      },
+    _connectionEventStream = _connectionEventChannel.receiveBroadcastStream().listen(
+      (data) => _handleConnectionEvent(ConnectionEvent.fromJson(data)),
       onError: onError,
     );
 
-    _successEventStream =
-        _successEventChannel.receiveBroadcastStream().listen(
-      (data) {
-        final event = SuccessResponseEvent.fromJson(data);
-        _dispatchSuccessEvent(event);
-      },
+    _successEventStream = _successEventChannel.receiveBroadcastStream().listen(
+      (data) => _dispatchSuccessEvent(SuccessResponseEvent.fromJson(data)),
       onError: onError,
     );
 
-    _errorEventStream =
-        _errorEventChannel.receiveBroadcastStream().listen(
-      (data) {
-        final event = ErrorResponseEvent.fromJson(data);
-        _dispatchErrorEvent(event);
-      },
+    _errorEventStream = _errorEventChannel.receiveBroadcastStream().listen(
+      (data) => _dispatchErrorEvent(ErrorResponseEvent.fromJson(data)),
       onError: onError,
     );
   }
@@ -175,7 +162,6 @@ class XmppConnection {
     await _connectionEventStream.cancel();
   }
 
-  /// Internal helpers
   void _handleIncomingEvent(dynamic data) {
     final eventModel = MessageEvent.fromJson(data);
     final messageChat = MessageChat.fromJson(data);
@@ -207,38 +193,32 @@ class XmppConnection {
   }
 
   void _handleConnectionEvent(ConnectionEvent event) {
+    final type = event.state.toLowerCase();
     XmppConnectionState newState;
-    switch (event.state.toLowerCase()) {
-      case 'authenticated':
-        newState = XmppConnectionState.authenticated;
-        break;
-      case 'connected':
-        newState = XmppConnectionState.connected;
-        break;
-      case 'connecting':
-        newState = XmppConnectionState.connecting;
-        break;
-      case 'disconnected':
-        newState = XmppConnectionState.disconnected;
-        break;
-      case 'failed':
-        newState = XmppConnectionState.failed;
-        break;
-      default:
-        newState = XmppConnectionState.disconnected;
+    if (type.contains('authenticated')) {
+      newState = XmppConnectionState.authenticated;
+    } else if (type.contains('connected')) {
+      newState = XmppConnectionState.connected;
+    } else if (type.contains('connecting')) {
+      newState = XmppConnectionState.connecting;
+    } else if (type.contains('disconnected')) {
+      newState = XmppConnectionState.disconnected;
+    } else if (type.contains('failed')) {
+      newState = XmppConnectionState.failed;
+    } else {
+      newState = XmppConnectionState.disconnected;
     }
+
     _updateConnectionState(newState);
   }
 
   void _updateConnectionState(XmppConnectionState newState) {
     if (connectionState != newState) {
       connectionState = newState;
-      for (var listener in _listeners) {
-        listener.onConnectionEvents(ConnectionEvent(state: newState.name));
-      }
-      if (newState == XmppConnectionState.disconnected ||
-          newState == XmppConnectionState.failed) {
-        // Auto-reconnect after 3 seconds
+      for (var listener in _listeners) listener.onConnectionEvents(ConnectionEvent(state: newState.name));
+
+      if (autoReconnect &&
+          (newState == XmppConnectionState.disconnected || newState == XmppConnectionState.failed)) {
         Future.delayed(const Duration(seconds: 3), () => login().catchError((e) => log('Reconnect failed: $e')));
       }
     }
