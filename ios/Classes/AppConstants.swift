@@ -158,7 +158,7 @@ enum XMPPControllerError: Error {
 }
 
 enum xmppConnectionStatus: Int {
-    case None, Processing, Sucess, Disconnect, Failed, Connected
+    case None, Processing, Success, Disconnect, Failed, Connected
     var value: Int { rawValue }
 }
 

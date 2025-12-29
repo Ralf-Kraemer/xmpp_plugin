@@ -2,13 +2,13 @@
 //  XMPPController+Room.swift
 //  flutter_xmpp
 //
-//  Modern Swift 5+ implementation
+//  Modern Swift 5+ implementation, fully safe and Flutter-ready
 //
 
 import Foundation
 import XMPPFramework
 
-extension XMPPController {
+extension XMPPController: XMPPRoomDelegate {
 
     // MARK: - Create or Join a MUC Room
     func createOrJoinMUC(roomJIDString: String, nickname: String, password: String? = nil) {
@@ -28,9 +28,13 @@ extension XMPPController {
         // 4️⃣ Add delegate
         room.addDelegate(self, delegateQueue: DispatchQueue.main)
         
-        // 5️⃣ Activate room on the XMPP stream
+        // 5️⃣ Activate room on the XMPP stream safely
+        guard let stream = xmppStream else {
+            printLog("\(#function) | xmppStream not initialized")
+            return
+        }
         do {
-            try room.activate(xmppStream)
+            try room.activate(stream)
         } catch {
             printLog("\(#function) | Failed to activate room: \(error.localizedDescription)")
             return
@@ -50,11 +54,13 @@ extension XMPPController {
 
     // MARK: - Room Presence
     func xmppRoomDidJoin(_ sender: XMPPRoom) {
-        printLog("\(#function) | Successfully joined room: \(sender.roomJID.bare)")
+        let roomJID = sender.roomJID.bare
+        printLog("\(#function) | Successfully joined room: \(roomJID)")
+        
         // Broadcast join success to Flutter
         broadCastMessageToFlutter(dicData: [
             "type": "muc_join",
-            "room": sender.roomJID.bare,
+            "room": roomJID,
             "status": "joined"
         ])
     }
@@ -66,18 +72,26 @@ extension XMPPController {
     func xmppRoom(_ sender: XMPPRoom, occupantDidJoin occupantJID: XMPPJID, withPresence presence: XMPPPresence) {
         printLog("\(#function) | Occupant joined: \(occupantJID.bare) in room: \(sender.roomJID.bare)")
     }
-    
+
     func xmppRoomDidLeave(_ sender: XMPPRoom) {
         printLog("\(#function) | Left room: \(sender.roomJID.bare)")
     }
 
     func xmppRoom(_ sender: XMPPRoom, didFailToJoin error: Error) {
         printLog("\(#function) | Failed to join room: \(sender.roomJID.bare) | Error: \(error.localizedDescription)")
+        
+        // Optional: notify Flutter about failure
+        broadCastMessageToFlutter(dicData: [
+            "type": "muc_join",
+            "room": sender.roomJID.bare,
+            "status": "failed",
+            "error": error.localizedDescription
+        ])
     }
 
     // MARK: - Broadcast Room Messages to Flutter
     func broadcastMUCMessageToFlutter(message: XMPPMessage, roomJID: String) {
-        var data: [String: Any] = [
+        let data: [String: Any] = [
             "type": "muc_message",
             "room": roomJID,
             "from": message.from?.bare ?? "",
@@ -85,5 +99,14 @@ extension XMPPController {
             "msgtype": xmppChatType.GROUPCHAT
         ]
         broadCastMessageToFlutter(dicData: data)
+    }
+
+    // MARK: - Helper to send data to Flutter via event channel
+    private func broadCastMessageToFlutter(dicData: [String: Any]) {
+        if let eventSink = FlutterXmppPlugin.objEventChannel?.setStreamHandler(nil) {
+            eventSink(dicData)
+        } else {
+            printLog("\(#function) | Event sink not available")
+        }
     }
 }

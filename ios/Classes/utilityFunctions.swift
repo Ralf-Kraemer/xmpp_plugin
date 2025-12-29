@@ -2,14 +2,18 @@
 //  utilityFunctions.swift
 //  xmpp_plugin
 //
-//  Created by xRStudio on 13/12/21.
+//  Modernized for Swift 5 / Xcode 15 / Flutter
 //
 
 import Foundation
 import Flutter
 
 // MARK: - Notification Observers
-public func postNotification(name: Notification.Name, object: Any? = nil, userInfo: [AnyHashable: Any]? = nil) {
+public func postNotification(
+    name: Notification.Name,
+    object: Any? = nil,
+    userInfo: [AnyHashable: Any]? = nil
+) {
     NotificationCenter.default.post(name: name, object: object, userInfo: userInfo)
 }
 
@@ -20,13 +24,17 @@ public func getTimeStamp() -> Int64 {
 
 public func getCurrentTime() -> String {
     let dateFormat = DateFormatter()
-    dateFormat.dateFormat = "yyyy-MM-dd HH:mm:ss.SSSS"
+    dateFormat.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS" // milliseconds
+    dateFormat.locale = Locale(identifier: "en_US_POSIX")
+    dateFormat.timeZone = TimeZone.current
     return dateFormat.string(from: Date())
 }
 
 // MARK: - Logging Helpers
 func printLog<T>(_ message: T) {
+    #if DEBUG
     print(message)
+    #endif
 }
 
 func addLogger(_ logType: LogType, _ value: Any) {
@@ -46,13 +54,13 @@ func addLogger(_ logType: LogType, _ value: Any) {
     
     printLog(logMessage)
     
-    // Add Logger in log-file
+    // Add logger to file
     guard let objLogger = APP_DELEGATE.objXMPPLogger else {
         printLog("\(#function) | XMPPLogger not initialized")
         return
     }
     
-    if !objLogger.isLogEnable {
+    guard objLogger.isLogEnable else {
         printLog("\(#function) | XMPP Logger is disabled.")
         return
     }
@@ -68,16 +76,19 @@ class AppLogger {
     }
     
     static func log(_ message: String) {
-        writeLogFile(withMessage: message)
+        DispatchQueue.global(qos: .background).async {
+            writeLogFile(withMessage: message)
+        }
     }
     
     private static func writeLogFile(withMessage message: String) {
-        guard let logFile = logFile, let data = (message + "\n").data(using: .utf8) else { return }
+        guard let logFile = logFile,
+              let data = (message + "\n").data(using: .utf8) else { return }
         
         if FileManager.default.fileExists(atPath: logFile.path) {
             do {
                 let fileHandle = try FileHandle(forWritingTo: logFile)
-                defer { fileHandle.closeFile() }
+                defer { try? fileHandle.close() }
                 fileHandle.seekToEndOfFile()
                 fileHandle.write(data)
             } catch {

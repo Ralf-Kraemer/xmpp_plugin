@@ -16,7 +16,7 @@ extension XMPPController {
                      receiverJID: String,
                      messageId: String,
                      isGroup: Bool = false,
-                     customElement: String,
+                     customElement: String = "",
                      withStream stream: XMPPStream) {
         
         guard let jid = XMPPJID(string: receiverJID) else {
@@ -27,8 +27,8 @@ extension XMPPController {
         let chatType = isGroup ? xmppChatType.GROUPCHAT : xmppChatType.CHAT
         let xmppMessage = XMPPMessage(type: chatType.lowercased(), to: jid)
         xmppMessage.addAttribute(withName: "xmlns", stringValue: "jabber:client")
-        xmppMessage.addAttribute(withName: "id", stringValue: messageId)
-        xmppMessage.addBody(messageBody)
+        xmppMessage.addAttribute(withName: "id", stringValue: messageId.trim())
+        xmppMessage.addBody(messageBody.trim())
         
         // Add timestamp element
         if let eleTime = getTimeElement(withTime: time) {
@@ -51,19 +51,21 @@ extension XMPPController {
     
     // MARK: - Send delivery receipt
     func sendMessageDeliveryReceipt(receiptId: String, jid: String, messageId: String, withStream stream: XMPPStream) {
-        guard !receiptId.trim().isEmpty,
-              !jid.trim().isEmpty,
-              !messageId.trim().isEmpty else {
+        let trimmedReceiptId = receiptId.trim()
+        let trimmedJid = jid.trim()
+        let trimmedMessageId = messageId.trim()
+        
+        guard !trimmedReceiptId.isEmpty, !trimmedJid.isEmpty, !trimmedMessageId.isEmpty else {
             print("\(#function) | Invalid receiptId, jid, or messageId")
             return
         }
         
-        guard let vJid = XMPPJID(string: getJIDNameForUser(jid, withStream: stream)) else { return }
+        guard let vJid = XMPPJID(string: getJIDNameForUser(trimmedJid, withStream: stream)) else { return }
         let xmppMessage = XMPPMessage(type: xmppChatType.NORMAL, to: vJid)
-        xmppMessage.addAttribute(withName: "id", stringValue: receiptId)
+        xmppMessage.addAttribute(withName: "id", stringValue: trimmedReceiptId)
         
         let received = XMLElement(name: "received", xmlns: "urn:xmpp:receipts")
-        received.addAttribute(withName: "id", stringValue: messageId)
+        received.addAttribute(withName: "id", stringValue: trimmedMessageId)
         xmppMessage.addChild(received)
         
         xmppMessage.addReceiptRequest()
@@ -85,12 +87,14 @@ extension XMPPController {
             "id": msgId,
             "from": "",
             "body": "",
-            "msgtype": "normal"
+            "msgtype": xmppChatType.NORMAL
         ]
         
-        printLog("\(#function) | data: \(data)")
-        addLogger(.sentMessageToFlutter, data)
-        eventSink?(data)
+        DispatchQueue.main.async {
+            printLog("\(#function) | data: \(data)")
+            addLogger(.sentMessageToFlutter, data)
+            self.eventSink?(data)
+        }
     }
     
     func sendAckDeliveryReceipt(for messageId: String) {
@@ -100,51 +104,65 @@ extension XMPPController {
             "id": msgId,
             "from": "",
             "body": "",
-            "msgtype": "normal"
+            "msgtype": xmppChatType.NORMAL
         ]
         
-        printLog("\(#function) | data: \(data)")
-        addLogger(.sentMessageToFlutter, data)
-        eventSink?(data)
+        DispatchQueue.main.async {
+            printLog("\(#function) | data: \(data)")
+            addLogger(.sentMessageToFlutter, data)
+            self.eventSink?(data)
+        }
     }
     
     // MARK: - Broadcast data to Flutter
     func broadCastMessageToFlutter(dicData: [String: Any]) {
-        printLog("Broadcasting message: \(dicData)")
-        eventSink?(dicData)
+        DispatchQueue.main.async {
+            printLog("Broadcasting message: \(dicData)")
+            self.eventSink?(dicData)
+        }
     }
     
     // MARK: - Send roster/member/lastActivity info
     func sendMemberList(withUsers users: [String]) {
-        printLog("\(#function) | Users: \(users)")
-        addLogger(.sentMessageToFlutter, users)
-        singalCallBack?(users)
+        DispatchQueue.main.async {
+            printLog("\(#function) | Users: \(users)")
+            addLogger(.sentMessageToFlutter, users)
+            self.singalCallBack?(users)
+        }
     }
     
     func sendRosters(withUsersJid jids: [String]) {
-        printLog("\(#function) | JIDs: \(jids)")
-        addLogger(.sentMessageToFlutter, jids)
-        singalCallBack?(jids)
+        DispatchQueue.main.async {
+            printLog("\(#function) | JIDs: \(jids)")
+            addLogger(.sentMessageToFlutter, jids)
+            self.singalCallBack?(jids)
+        }
     }
     
     func sendLastActivity(withTime time: String) {
-        printLog("\(#function) | time: \(time)")
-        addLogger(.sentMessageToFlutter, time)
-        singalCallBack?(time)
+        DispatchQueue.main.async {
+            printLog("\(#function) | time: \(time)")
+            addLogger(.sentMessageToFlutter, time)
+            self.singalCallBack?(time)
+        }
     }
     
     // MARK: - MUC Join/Create Status
-    func sendMUCJoinStatus(_ success: Bool, roomName: String, error: String) {
-        printLog("\(#function) | success: \(success)")
-        addLogger(.sentMessageToFlutter, success)
-        updateMUCJoinStatus(withRoomname: roomName, status: success, error: error)
-        singalCallBack?(success)
+    func sendMUCJoinStatus(_ success: Bool, roomName: String, error: String = "") {
+        DispatchQueue.main.async {
+            printLog("\(#function) | success: \(success) | room: \(roomName) | error: \(error)")
+            addLogger(.sentMessageToFlutter, ["success": success, "room": roomName, "error": error])
+            self.updateMUCJoinStatus(withRoomname: roomName, status: success, error: error)
+            self.singalCallBack?(success)
+        }
     }
     
     func sendMUCCreateStatus(_ success: Bool) {
-        printLog("\(#function) | success: \(success)")
-        addLogger(.sentMessageToFlutter, success)
-        singalCallBack?(success)
+        DispatchQueue.main.async {
+            printLog("\(#function) | success: \(success)")
+            addLogger(.sentMessageToFlutter, ["success": success])
+            self.singalCallBack?(success)
+        }
     }
     
     // MARK: - Send presence updates
@@ -155,8 +173,11 @@ extension XMPPController {
             "presenceType": type,
             "presenceMode": mode
         ]
-        addLogger(.sentMessageToFlutter, dic)
-        eventSink?(dic)
+        
+        DispatchQueue.main.async {
+            addLogger(.sentMessageToFlutter, dic)
+            self.eventSink?(dic)
+        }
     }
     
     // MARK: - Send typing status
@@ -174,7 +195,7 @@ extension XMPPController {
             case xmppTypingStatus.Inactive: return .inactive
             case xmppTypingStatus.Gone: return .gone
             default: return .gone
-            }
+        }
         }()
         
         xmppMessage.addChatState(chatState)

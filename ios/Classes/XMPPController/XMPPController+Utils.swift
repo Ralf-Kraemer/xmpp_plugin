@@ -2,95 +2,103 @@
 //  XMPPController+Utils.swift
 //  xmpp_plugin
 //
-//  Updated to correctly handle MUCSUB messages for iOS,
-//  aligned with Dart expectations.
+//  Modernized for Swift 5 / Xcode 15, fully safe and Flutter-ready.
 //
 
 import Foundation
 import XMPPFramework
 
-/// Manage MUCSUB messages — returns an XMPPMessage if found
-func manage_MucSubMesage(_ message: XMPPMessage) -> XMPPMessage? {
-
-    // Only match if the "event" element URI is MUCSUB
-    let events = message.elements(
-        forName: "event",
-        xmlns: "http://jabber.org/protocol/pubsub#event"
-    )
-
-    guard events.first != nil else {
+// MARK: - Manage MUCSUB messages
+func manage_MucSubMessage(_ message: XMPPMessage) -> XMPPMessage? {
+    
+    // Only process messages containing a pubsub#event
+    guard let _ = message.element(forName: "event", xmlns: "http://jabber.org/protocol/pubsub#event") else {
         return nil
     }
-
+    
     printLog("\(#function) | MUCSub event detected")
-
+    
     // Extract <message> from the nested structure
-    guard
-        let itemMessageXML = message
-            .element(forName: "event", xmlns: "http://jabber.org/protocol/pubsub#event")?
-            .element(forName: "items")?
-            .element(forName: "item")?
-            .element(forName: "message")?
-            .xmlString
-    else {
-        printLog("\(#function) | No nested message found")
+    guard let nestedMessageXML = message
+        .element(forName: "event", xmlns: "http://jabber.org/protocol/pubsub#event")?
+        .element(forName: "items")?
+        .element(forName: "item")?
+        .element(forName: "message")?
+        .xmlString else {
+            printLog("\(#function) | No nested <message> found")
+            return nil
+    }
+    
+    guard let xmppMessage = getXMPPMessage(fromXML: nestedMessageXML) else {
+        printLog("\(#function) | Failed to parse nested <message>")
         return nil
     }
-
-    guard let xmppMsg = getXMPPMesage(usingXMPPMessageString: itemMessageXML) else {
-        printLog("\(#function) | Failed to parse inner message")
-        return nil
+    
+    // Ensure bare JID (resource-less)
+    let bareJID = xmppMessage.from?.bare ?? ""
+    printLog("\(#function) | Normalized bareJID: \(bareJID)")
+    
+    // Ensure timestamp exists — Dart expects non-empty time
+    if xmppMessage.element(forName: "delay") == nil {
+        let timestamp = xmppMessage.getTimestamp()
+        let delayElement = DDXMLElement(name: "delay", stringValue: timestamp)
+        xmppMessage.addChild(delayElement)
     }
-
-    // 🛠 Extract bare JID safely
-    let bareJID: String = xmppMsg.from?.bare ?? ""
-
-    // 🛠 Ensure timestamp exists — Dart expects a non-empty time
-    let time: String = xmppMsg.getTimestamp() // uses the extension I suggested
-    if xmppMsg.element(forName: "delay") == nil {
-        let delay = DDXMLElement(name: "delay", stringValue: time)
-        xmppMsg.addChild(delay)
-    }
-
-    // Return the normalized message
-    return xmppMsg
+    
+    return xmppMessage
 }
 
 // MARK: - XMPPMessage timestamp helper
 extension XMPPMessage {
+    
+    /// Returns a valid timestamp string
     func getTimestamp() -> String {
-        // <time> custom element
+        // Custom <time> element (if present)
         if let timeElement = self.element(forName: "time", xmlns: "urn:xmpp:time"),
            let timeValue = timeElement.stringValue?.trim(), !timeValue.isEmpty {
             return timeValue
         }
-
+        
         // XEP-0203 <delay> element
         if let delayElement = self.element(forName: "delay", xmlns: "urn:xmpp:delay"),
-           let delayValue = delayElement.attributeStringValue(forName: "stamp")?.trim(),
-           !delayValue.isEmpty {
-            return delayValue
+           let delayStamp = delayElement.attributeStringValue(forName: "stamp")?.trim(),
+           !delayStamp.isEmpty {
+            return delayStamp
         }
-
-        // fallback
+        
+        // Fallback to current timestamp in milliseconds
         return "\(Int(Date().timeIntervalSince1970 * 1000))"
     }
 }
 
-/// Parse an XMPP message from raw XML safely
-func getXMPPMesage(usingXMPPMessageString xml: String) -> XMPPMessage? {
-
-    let trimmed = xml.trim()
-    guard !trimmed.isEmpty else {
-        printLog("\(#function) | Empty XML message string")
+// MARK: - XMPPMessage XML parser
+func getXMPPMessage(fromXML xml: String) -> XMPPMessage? {
+    
+    let trimmedXML = xml.trim()
+    guard !trimmedXML.isEmpty else {
+        printLog("\(#function) | XML string is empty")
         return nil
     }
-
+    
     do {
-        let parsedMessage = try XMPPMessage(xmlString: trimmed)
+        let parsedMessage = try XMPPMessage(xmlString: trimmedXML)
         return parsedMessage
-    } catch let error {
-        printLog("\(#function) | XML parse failed: \(error.localizedDescription)")
+    } catch {
+        printLog("\(#function) | Failed to parse XML: \(error.localizedDescription)")
         return nil
+    }
+}
+
+// MARK: - Utility: print log
+func printLog(_ message: String) {
+    #if DEBUG
+    print(message)
+    #endif
+}
+
+// MARK: - Utility: trim string
+extension String {
+    func trim() -> String {
+        return self.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

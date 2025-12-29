@@ -2,27 +2,33 @@
 //  XMPPController+Roster.swift
 //  xmpp_plugin
 //
-//  Updated for lib/ alignment
+//  Updated for Swift 5 / Xcode 15, Flutter-ready
 //
 
 import Foundation
 import XMPPFramework
 
-//MARK: - XMPPRoster
+// MARK: - XMPPRoster
 extension XMPPController: XMPPRosterDelegate {
 
-    // Create roster / subscribe to a user
+    // MARK: - Create roster / subscribe to a user
     func createRosters(withUserJid jid: String) {
         let trimmedJid = jid.trim()
         printLog("\(#function) | withUserJid: \(trimmedJid)")
         
         guard !trimmedJid.isEmpty else {
-            print("\(#function) | userJid is empty.")
+            printLog("\(#function) | userJid is empty.")
             return
         }
         
-        guard let vJid = XMPPJID(string: getJIDNameForUser(trimmedJid, withStream: xmppStream!)) else {
-            print("\(#function) | Invalid JID: \(jid)")
+        guard let stream = xmppStream else {
+            printLog("\(#function) | xmppStream not initialized")
+            return
+        }
+        
+        let fullJid = getJIDNameForUser(trimmedJid)
+        guard let vJid = XMPPJID(string: fullJid) else {
+            printLog("\(#function) | Invalid JID: \(jid)")
             return
         }
         
@@ -30,21 +36,30 @@ extension XMPPController: XMPPRosterDelegate {
         printLog("\(#function) | Sent presence subscription to \(vJid)")
     }
 
-    // Get current roster and send to Flutter
+    // MARK: - Get current roster and send to Flutter
     func getMyRosters() {
         var arrJidString: [String] = []
-        guard let jids = xmppRosterStorage?.jids(for: xmppStream!) else {
-            printLog("\(#function) | No roster found.")
+        
+        guard let stream = xmppStream else {
+            printLog("\(#function) | xmppStream not initialized")
             sendRosters(withUsersJid: arrJidString)
             return
         }
         
+        guard let storage = xmppRosterStorage else {
+            printLog("\(#function) | Roster storage not initialized")
+            sendRosters(withUsersJid: arrJidString)
+            return
+        }
+        
+        let jids = storage.jids(for: stream) ?? []
         for jid in jids {
             let strJid = jid.description.trim()
             if !strJid.isEmpty {
                 arrJidString.append(strJid)
             }
         }
+        
         sendRosters(withUsersJid: arrJidString)
         printLog("\(#function) | Sent roster to Flutter: \(arrJidString)")
     }
@@ -52,8 +67,9 @@ extension XMPPController: XMPPRosterDelegate {
     // MARK: - XMPPRosterDelegate callbacks
     
     func xmppRoster(_ sender: XMPPRoster, didReceivePresenceSubscriptionRequest presence: XMPPPresence) {
-        printLog("\(#function) | Received subscription request: \(presence.fromStr ?? "--")")
-        // Optional: automatically accept?
+        let fromJid = presence.from?.bare ?? "--"
+        printLog("\(#function) | Received subscription request from: \(fromJid)")
+        // Optional: automatically accept
         // sender.acceptPresenceSubscriptionRequest(from: presence.from, andAddToRoster: true)
     }
     
@@ -70,4 +86,30 @@ extension XMPPController: XMPPRosterDelegate {
         printLog("\(#function) | Finished populating roster")
         getMyRosters() // Send final roster to Flutter
     }
+}
+
+// MARK: - Utility
+extension XMPPController {
+    /// Forward roster to Flutter via event channel
+    func sendRosters(withUsersJid jids: [String]) {
+        if let eventSink = FlutterXmppPlugin.objEventChannel?.setStreamHandler(nil) {
+            eventSink(["event": "roster_update", "jids": jids])
+        } else {
+            printLog("\(#function) | Event sink not available")
+        }
+    }
+}
+
+// MARK: - String trimming helper
+extension String {
+    func trim() -> String {
+        trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+// MARK: - Debug logging
+func printLog(_ message: String) {
+    #if DEBUG
+    print(message)
+    #endif
 }

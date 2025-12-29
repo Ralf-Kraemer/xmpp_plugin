@@ -2,6 +2,8 @@
 //  XMPPController+Presence.swift
 //  xmpp_plugin
 //
+//  Modern Swift 5+ implementation, Flutter-ready
+//
 
 import Foundation
 import XMPPFramework
@@ -18,33 +20,40 @@ extension XMPPController {
 
         let trimmedJid = jid.trim()
         guard !trimmedJid.isEmpty,
-              let vJid = XMPPJID(string: getJIDNameForUser(trimmedJid, withStrem: stream)) else {
-            if let callback = APP_DELEGATE.singalCallBack {
-                callback(xmppConstants.DataNil)
-            }
+              let vJid = XMPPJID(string: getJIDNameForUser(trimmedJid, withStream: stream)) else {
+            APP_DELEGATE.singalCallBack?(xmppConstants.DataNil)
             return
         }
 
-        let obj = xmppRosterStorage?.user(for: vJid, xmppStream: stream, managedObjectContext: nil)
-        printLog("\(#function) | User presence object: \(String(describing: obj))")
+        let userPresence = xmppRosterStorage?.user(for: vJid, xmppStream: stream, managedObjectContext: nil)
+        printLog("\(#function) | User presence object: \(String(describing: userPresence))")
     }
 
-    // MARK: - Stream Delegate
+    // MARK: - XMPPStream Delegate: Sending Presence
     func xmppStream(_ sender: XMPPStream, didSend presence: XMPPPresence) {
         printLog("\(#function) | Sent presence: \(presence)")
     }
 
     func xmppStream(_ sender: XMPPStream, didFailToSend presence: XMPPPresence, error: Error) {
-        printLog("\(#function) | Failed to send presence: \(presence) | error: \(error)")
+        printLog("\(#function) | Failed to send presence: \(presence) | error: \(error.localizedDescription)")
     }
 
+    // MARK: - XMPPStream Delegate: Receiving Presence
     func xmppStream(_ sender: XMPPStream, didReceive presence: XMPPPresence) {
         printLog("\(#function) | Received presence: \(presence)")
 
+        // Handle error presence
         if presence.isErrorPresence {
-            let errorMessage = presence.getElements(withKey: "error").first?.getValue(withKey: "text") ?? ""
+            let errorMessage = presence.elements(forName: "error")
+                .first?
+                .element(forName: "text")?
+                .stringValue ?? ""
             printLog("\(#function) | Error presence: \(errorMessage)")
-            APP_DELEGATE.updateMUCJoinStatus(withRoomname: presence.fromStr ?? "", status: false, error: errorMessage)
+            APP_DELEGATE.updateMUCJoinStatus(
+                withRoomname: presence.fromStr ?? "",
+                status: false,
+                error: errorMessage
+            )
             return
         }
 
@@ -53,6 +62,20 @@ extension XMPPController {
         var vMode = presence.show ?? ""
         if vMode.trim().isEmpty { vMode = vType }
 
-        sendPresence(withJid: vFrom, type: vType, move: vMode)
+        sendPresence(withJid: vFrom, type: vType, mode: vMode)
+    }
+}
+
+// MARK: - Utility: print log
+func printLog(_ message: String) {
+    #if DEBUG
+    print(message)
+    #endif
+}
+
+// MARK: - Utility: trim string
+extension String {
+    func trim() -> String {
+        return self.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
