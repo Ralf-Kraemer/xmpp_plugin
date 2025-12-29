@@ -367,19 +367,18 @@ class XmppConnection {
     };
     await _channel.invokeMethod('request_mam', params);
   }
-
-
-  Future<void> changeTypingStatus(
-    String userJid,
-    String typingstatus,
-  ) async {
-    print(" Plugin : User Jid : $userJid , Typing Status : $typingstatus ");
-    final params = {
-      "userJid": userJid,
-      "typingStatus": typingStatus,
-    };
-    await _channel.invokeMethod('change_typing_status', params);
-  }
+    
+Future<void> changeTypingStatus(
+  String userJid,
+  String typingStatus, // <-- match casing
+) async {
+  print("Plugin: User Jid: $userJid, Typing Status: $typingStatus");
+  final params = {
+    "userJid": userJid,
+    "typingStatus": typingStatus, // <-- now references the parameter correctly
+  };
+  await _channel.invokeMethod('change_typing_status', params);
+}
 
   Future<void> changePresenceType(
       String presenceType, String presenceMode) async {

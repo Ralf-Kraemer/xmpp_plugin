@@ -12,17 +12,20 @@ class PresentModel {
   String? from;
 
   factory PresentModel.fromJson(dynamic json) {
-  if (json == null || json is! Map<String, dynamic>) {
-    return PresentModel();
+    if (json == null || json is! Map<String, dynamic>) {
+      return PresentModel();
+    }
+
+    return PresentModel(
+      presenceType: json['type'] != null
+          ? _getPresenceType(json['type'])
+          : null,
+      presenceMode: json['mode'] != null
+          ? _getPresenceMode(json['mode'])
+          : null,
+      from: json['from'],
+    );
   }
-
-  return PresentModel(
-    presenceType: json['type'],
-    presenceMode: json['mode'],
-    status: json['status'],
-  );
-}
-
 
   static PresenceType _getPresenceType(String presenceType) {
     switch (presenceType) {
@@ -65,8 +68,8 @@ class PresentModel {
   }
 
   Map<String, dynamic> toJson() => {
-        "presenceMode": presenceMode?.name ?? '',
-        "presenceType": presenceType?.name ?? '',
+        "presenceMode": presenceMode?.name,
+        "presenceType": presenceType?.name,
         "from": from,
       };
 }
