@@ -19,13 +19,12 @@ func manage_MucSubMesage(_ message: XMPPMessage) -> XMPPMessage? {
     )
 
     guard events.first != nil else {
-        // Not a mucsub event
         return nil
     }
 
     printLog("\(#function) | MUCSub event detected")
 
-    // Extract the <message/> child from the pubsub event
+    // Extract <message> from the nested structure
     guard
         let itemMessageXML = message
             .element(forName: "event", xmlns: "http://jabber.org/protocol/pubsub#event")?
@@ -38,28 +37,44 @@ func manage_MucSubMesage(_ message: XMPPMessage) -> XMPPMessage? {
         return nil
     }
 
-    // Parse that XML into an XMPPMessage
     guard let xmppMsg = getXMPPMesage(usingXMPPMessageString: itemMessageXML) else {
         printLog("\(#function) | Failed to parse inner message")
         return nil
     }
 
-    // 🛠 Normalize 'from' to bare JID (no resource)
-    if let fromJIDObj = xmppMsg.from {
-        // XMPPFramework uses 'bareJID' property for resource-less JID
-        let bare: String = fromJIDObj.bare
-        xmppMsg.from = XMPPJID(string: bare)
-    }
+    // 🛠 Extract bare JID safely
+    let bareJID: String = xmppMsg.from?.bare ?? ""
 
     // 🛠 Ensure timestamp exists — Dart expects a non-empty time
-    let existingTime = xmppMsg.getTimeElementInfo().trim()
-    if existingTime.isEmpty {
-        let ts = "\(getTimeStamp())"
-        let delay = DDXMLElement(name: "delay", stringValue: ts)
+    let time: String = xmppMsg.getTimestamp() // uses the extension I suggested
+    if xmppMsg.element(forName: "delay") == nil {
+        let delay = DDXMLElement(name: "delay", stringValue: time)
         xmppMsg.addChild(delay)
     }
 
+    // Return the normalized message
     return xmppMsg
+}
+
+// MARK: - XMPPMessage timestamp helper
+extension XMPPMessage {
+    func getTimestamp() -> String {
+        // <time> custom element
+        if let timeElement = self.element(forName: "time", xmlns: "urn:xmpp:time"),
+           let timeValue = timeElement.stringValue?.trim(), !timeValue.isEmpty {
+            return timeValue
+        }
+
+        // XEP-0203 <delay> element
+        if let delayElement = self.element(forName: "delay", xmlns: "urn:xmpp:delay"),
+           let delayValue = delayElement.attributeStringValue(forName: "stamp")?.trim(),
+           !delayValue.isEmpty {
+            return delayValue
+        }
+
+        // fallback
+        return "\(Int(Date().timeIntervalSince1970 * 1000))"
+    }
 }
 
 /// Parse an XMPP message from raw XML safely

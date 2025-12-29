@@ -2,7 +2,7 @@
 //  XMPPReceiveMessage.swift
 //  flutter_xmpp
 //
-//  Created by xRStudio on 17/08/21.
+//  Modernized for Flutter EventChannel
 //
 
 import Foundation
@@ -15,8 +15,8 @@ extension XMPPController {
         
         printLog("Handling message: \(message)")
         
-        guard let sendData = APP_DELEGATE.objEventData else {
-            print("\(#function) | APP_DELEGATE.objEventData is nil")
+        guard let sendData = eventSink else {
+            print("\(#function) | eventSink is nil")
             return
         }
         
@@ -30,7 +30,7 @@ extension XMPPController {
             return
         }
         
-        let customText = message.getCustomElementInfo(withKey: eleCustom.Kay)
+        let customText = message.getCustomElementInfo(withKey: eleCustom.Key)
         let data: [String: Any] = [
             "type": pluginMessType.Message,
             "id": messageId,
@@ -54,7 +54,7 @@ extension XMPPController {
                 print("\(#function) | ReceiptResponseID is empty/nil.")
                 return
             }
-            self.sendAckDeliveryReceipt(withMessageId: receiptId)
+            self.sendAckDeliveryReceipt(for: receiptId)
             return
         }
         
@@ -84,7 +84,8 @@ extension XMPPController {
             "chatStateType": chatState
         ]
         
-        APP_DELEGATE.objEventData?(data)
+        // Broadcast via eventSink
+        eventSink?(data)
         self.broadCastMessageToFlutter(dicData: data)
     }
 }

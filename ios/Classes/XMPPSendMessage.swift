@@ -2,7 +2,7 @@
 //  XMPPSendMessage.swift
 //  flutter_xmpp
 //
-//  Created by xRStudio on 17/08/21.
+//  Modernized version for Flutter integration
 //
 
 import Foundation
@@ -36,10 +36,8 @@ extension XMPPController {
         }
         
         // Add custom element
-        var isCustom = false
         if let ele = getCustomElement(withElementName: customElement) {
             xmppMessage.addChild(ele)
-            isCustom = true
         }
         
         // Add delivery receipt request if enabled
@@ -48,7 +46,7 @@ extension XMPPController {
         }
         
         stream.send(xmppMessage)
-        addLogger(isCustom ? .sentCustomMessageToServer : .sentMessageToServer, xmppMessage)
+        addLogger(.sentMessageToServer, xmppMessage)
     }
     
     // MARK: - Send delivery receipt
@@ -60,7 +58,7 @@ extension XMPPController {
             return
         }
         
-        guard let vJid = XMPPJID(string: getJIDNameForUser(jid, withStrem: stream)) else { return }
+        guard let vJid = XMPPJID(string: getJIDNameForUser(jid, withStream: stream)) else { return }
         let xmppMessage = XMPPMessage(type: xmppChatType.NORMAL, to: vJid)
         xmppMessage.addAttribute(withName: "id", stringValue: receiptId)
         
@@ -92,7 +90,7 @@ extension XMPPController {
         
         printLog("\(#function) | data: \(data)")
         addLogger(.sentMessageToFlutter, data)
-        APP_DELEGATE.objEventData?(data)
+        eventSink?(data)
     }
     
     func sendAckDeliveryReceipt(for messageId: String) {
@@ -104,50 +102,49 @@ extension XMPPController {
             "body": "",
             "msgtype": "normal"
         ]
+        
         printLog("\(#function) | data: \(data)")
         addLogger(.sentMessageToFlutter, data)
-        APP_DELEGATE.objEventData?(data)
+        eventSink?(data)
     }
     
     // MARK: - Broadcast data to Flutter
     func broadCastMessageToFlutter(dicData: [String: Any]) {
         printLog("Broadcasting message: \(dicData)")
-        APP_DELEGATE.objEventData?(dicData)
+        eventSink?(dicData)
     }
     
     // MARK: - Send roster/member/lastActivity info
     func sendMemberList(withUsers users: [String]) {
         printLog("\(#function) | Users: \(users)")
         addLogger(.sentMessageToFlutter, users)
-        APP_DELEGATE.singalCallBack?(users)
+        singalCallBack?(users)
     }
     
     func sendRosters(withUsersJid jids: [String]) {
         printLog("\(#function) | JIDs: \(jids)")
         addLogger(.sentMessageToFlutter, jids)
-        APP_DELEGATE.singalCallBack?(jids)
+        singalCallBack?(jids)
     }
     
     func sendLastActivity(withTime time: String) {
         printLog("\(#function) | time: \(time)")
         addLogger(.sentMessageToFlutter, time)
-        APP_DELEGATE.singalCallBack?(time)
+        singalCallBack?(time)
     }
     
     // MARK: - MUC Join/Create Status
     func sendMUCJoinStatus(_ success: Bool, roomName: String, error: String) {
         printLog("\(#function) | success: \(success)")
         addLogger(.sentMessageToFlutter, success)
-        if success {
-            APP_DELEGATE.updateMUCJoinStatus(withRoomname: roomName, status: success, error: error)
-        }
-        APP_DELEGATE.singalCallBack?(success)
+        updateMUCJoinStatus(withRoomname: roomName, status: success, error: error)
+        singalCallBack?(success)
     }
     
     func sendMUCCreateStatus(_ success: Bool) {
         printLog("\(#function) | success: \(success)")
         addLogger(.sentMessageToFlutter, success)
-        APP_DELEGATE.singalCallBack?(success)
+        singalCallBack?(success)
     }
     
     // MARK: - Send presence updates
@@ -159,7 +156,7 @@ extension XMPPController {
             "presenceMode": mode
         ]
         addLogger(.sentMessageToFlutter, dic)
-        APP_DELEGATE.objEventData?(dic)
+        eventSink?(dic)
     }
     
     // MARK: - Send typing status
@@ -188,7 +185,7 @@ extension XMPPController {
     // MARK: - Private helpers for custom/time elements
     private func getTimeElement(withTime time: String) -> XMLElement? {
         let ele = XMLElement(name: eleTIME.Name, xmlns: eleTIME.Namespace)
-        ele.addChild(XMLElement(name: eleTIME.Kay, stringValue: time))
+        ele.addChild(XMLElement(name: eleTIME.Key, stringValue: time))
         return ele
     }
     
@@ -197,7 +194,7 @@ extension XMPPController {
         guard !trimmedName.isEmpty else { return nil }
         
         let ele = XMLElement(name: eleCustom.Name, xmlns: eleCustom.Namespace)
-        ele.addChild(XMLElement(name: eleCustom.Kay, stringValue: trimmedName))
+        ele.addChild(XMLElement(name: eleCustom.Key, stringValue: trimmedName))
         return ele
     }
 }

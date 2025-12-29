@@ -52,7 +52,7 @@ extension XMPPController: XMPPLastActivityDelegate {
 
         let trimmedJid = jid.trim()
         guard !trimmedJid.isEmpty,
-              let vJid = XMPPJID(string: getJIDNameForUser(trimmedJid, withStrem: stream)) else {
+              let vJid = XMPPJID(string: getJIDNameForUser(trimmedJid, withStream: stream)) else {
             printLog("\(#function) | Invalid UserJid: \(jid)")
             return
         }

@@ -21,7 +21,7 @@ extension XMPPController: XMPPRosterDelegate {
             return
         }
         
-        guard let vJid = XMPPJID(string: getJIDNameForUser(trimmedJid, withStrem: xmppStream!)) else {
+        guard let vJid = XMPPJID(string: getJIDNameForUser(trimmedJid, withStream: xmppStream!)) else {
             print("\(#function) | Invalid JID: \(jid)")
             return
         }

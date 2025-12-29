@@ -41,7 +41,7 @@ extension XMPPController {
         if !jid.trim().isEmpty {
             let isFullJid = (jid.components(separatedBy: "@").count == 2)
             if !isFullJid {
-                jidString = getJIDNameForUser(jid, withStrem: xmppStream!)
+                jidString = getJIDNameForUser(jid, withStream: xmppStream!)
             }
             let aJIDField = XMPPMessageArchiveManagement.field(withVar: "with", type: nil, andValue: jidString)
             fields.append(aJIDField)
@@ -57,7 +57,7 @@ extension XMPPController {
         printLog("\(#function) | Manage MAM message: \(message)")
         let vMessType = (message.type ?? xmppChatType.NORMAL).trim()
         if vMessType == xmppChatType.CHAT || vMessType == xmppChatType.GROUPCHAT {
-            handle_ChatMessage(message, withType: vMessType, withStrem: xmppStream!)
+            handle_ChatMessage(message, withType: vMessType, withStream: xmppStream!)
         }
     }
 
