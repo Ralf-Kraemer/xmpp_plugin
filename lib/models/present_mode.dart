@@ -11,11 +11,18 @@ class PresentModel {
   PresenceType? presenceType;
   String? from;
 
-  factory PresentModel.fromJson(dynamic json) => PresentModel(
-        presenceMode: _getPresenceMode(json["presenceMode"] ?? ''),
-        presenceType: _getPresenceType(json["presenceType"] ?? ''),
-        from: json["from"] ?? '',
-      );
+  factory PresentModel.fromJson(dynamic json) {
+  if (json == null || json is! Map<String, dynamic>) {
+    return PresentModel();
+  }
+
+  return PresentModel(
+    presenceType: json['type'],
+    presenceMode: json['mode'],
+    status: json['status'],
+  );
+}
+
 
   static PresenceType _getPresenceType(String presenceType) {
     switch (presenceType) {
