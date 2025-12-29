@@ -18,134 +18,132 @@ import java.io.IOException;
 
 public class FlutterXmppConnectionService extends Service {
 
-    public static LoggedInState sLoggedInState;
-    public static ConnectionState sConnectionState;
-    private Integer port;
-    private Thread mThread;
-    private boolean mActive;
-    private String host = "";
-    private Handler mTHandler;
-    private String jid_user = "";
+    private static LoggedInState sLoggedInState = LoggedInState.LOGGED_OUT;
+    private static ConnectionState sConnectionState = ConnectionState.DISCONNECTED;
+
+    private String jidUser = "";
     private String password = "";
-    private boolean requireSSLConnection = false, autoDeliveryReceipt = false, useStreamManagement = true, automaticReconnection = true;
+    private String host = "";
+    private int port = 5222;
+    private boolean requireSSLConnection = false;
+    private boolean autoDeliveryReceipt = false;
+    private boolean useStreamManagement = true;
+    private boolean automaticReconnection = true;
+
     private FlutterXmppConnection mConnection;
-
-    public FlutterXmppConnectionService() {
-    }
-
-    public static ConnectionState getState() {
-        if (sConnectionState == null) {
-            return ConnectionState.DISCONNECTED;
-        }
-        return sConnectionState;
-    }
-
-    public static LoggedInState getLoggedInState() {
-        if (sLoggedInState == null) {
-            return LoggedInState.LOGGED_OUT;
-        }
-        return sLoggedInState;
-    }
+    private Thread mThread;
+    private Handler mHandler;
+    private volatile boolean mActive = false;
 
     @Override
     public IBinder onBind(Intent intent) {
         return null;
     }
 
+    public static ConnectionState getState() {
+        return sConnectionState;
+    }
+
+    public static LoggedInState getLoggedInState() {
+        return sLoggedInState;
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
-
-        Utils.printLog(" onCreate(): ");
-
+        Utils.printLog("FlutterXmppConnectionService onCreate()");
     }
 
-    private void initConnection() {
-        try {
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        Utils.printLog("FlutterXmppConnectionService onStartCommand()");
 
-            Utils.printLog(" initConnection(): ");
+        if (intent != null && intent.getExtras() != null) {
+            Bundle extras = intent.getExtras();
+            jidUser = extras.getString(Constants.JID_USER, "");
+            password = extras.getString(Constants.PASSWORD, "");
+            host = extras.getString(Constants.HOST, "");
+            port = extras.getInt(Constants.PORT, 5222);
+            requireSSLConnection = extras.getBoolean(Constants.REQUIRE_SSL_CONNECTION, false);
+            autoDeliveryReceipt = extras.getBoolean(Constants.AUTO_DELIVERY_RECEIPT, false);
+            useStreamManagement = extras.getBoolean(Constants.USER_STREAM_MANAGEMENT, true);
+            automaticReconnection = extras.getBoolean(Constants.AUTOMATIC_RECONNECTION, true);
+        } else {
+            Utils.printLog("Missing connection parameters (JID/User/Password/Host/Port).");
+        }
 
-            if (mConnection == null) {
-                mConnection = new FlutterXmppConnection(this, this.jid_user, this.password, this.host, this.port, requireSSLConnection, autoDeliveryReceipt, useStreamManagement, automaticReconnection);
-            }
+        startConnection();
+        return START_STICKY;
+    }
 
-            mConnection.connect();
+    @Override
+    public void onDestroy() {
+        Utils.printLog("FlutterXmppConnectionService onDestroy()");
+        stopConnection();
+        super.onDestroy();
+    }
 
-        } catch (IOException | SmackException | XMPPException e) {
-            FlutterXmppConnectionService.sConnectionState = ConnectionState.FAILED;
-            Utils.broadcastConnectionMessageToFlutter(this, ConnectionState.FAILED, "Something went wrong while connecting ,make sure the credentials are right and try again.");
-            Utils.printLog(" Something went wrong while connecting ,make sure the credentials are right and try again: ");
-            e.printStackTrace();
-            stopSelf();
+    private void startConnection() {
+        Utils.printLog("Starting XMPP Service connection...");
+
+        if (mActive) return;
+        mActive = true;
+
+        if (mThread == null || !mThread.isAlive()) {
+            mThread = new Thread(() -> {
+                Looper.prepare();
+                mHandler = new Handler(Looper.myLooper());
+                initConnection();
+                Looper.loop();
+            }, "XMPP-Service-Thread");
+            mThread.start();
         }
     }
 
-    public void start() {
-
-        Utils.printLog(" Service Start() function called: ");
-
-        if (!mActive) {
-            mActive = true;
-            if (mThread == null || !mThread.isAlive()) {
-                mThread = new Thread(() -> {
-                    Looper.prepare();
-                    mTHandler = new Handler();
-                    initConnection();
-                    Looper.loop();
-                });
-                mThread.start();
-            }
-        }
-
-    }
-
-    public void stop() {
-
-        Utils.printLog(" stop() :");
-
+    private void stopConnection() {
+        Utils.printLog("Stopping XMPP Service connection...");
         mActive = false;
-        if (mTHandler != null) {
-            mTHandler.post(() -> {
+
+        if (mHandler != null) {
+            mHandler.post(() -> {
                 if (mConnection != null) {
                     mConnection.disconnect();
+                    mConnection = null;
                 }
             });
         }
     }
 
+    private void initConnection() {
+        try {
+            Utils.printLog("Initializing XMPP connection...");
 
-    @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
+            if (mConnection == null) {
+                mConnection = new FlutterXmppConnection(
+                        this,
+                        jidUser,
+                        password,
+                        host,
+                        port,
+                        requireSSLConnection,
+                        autoDeliveryReceipt,
+                        useStreamManagement,
+                        automaticReconnection
+                );
+            }
 
-        Utils.printLog(" onStartCommand(): ");
+            mConnection.connect();
 
-        Bundle extras = intent.getExtras();
-
-        if (extras == null) {
-
-            Utils.printLog(" Missing User JID/Password/Host/Port: ");
-
-        } else {
-            this.jid_user = extras.getString(Constants.JID_USER);
-            this.password = extras.getString(Constants.PASSWORD);
-            this.host = extras.getString(Constants.HOST);
-            this.port = extras.getInt(Constants.PORT, 5222);
-            this.requireSSLConnection = extras.getBoolean(Constants.REQUIRE_SSL_CONNECTION, false);
-            this.autoDeliveryReceipt = extras.getBoolean(Constants.AUTO_DELIVERY_RECEIPT, false);
-            this.useStreamManagement = extras.getBoolean(Constants.USER_STREAM_MANAGEMENT, true);
-            this.automaticReconnection = extras.getBoolean(Constants.AUTOMATIC_RECONNECTION, true);
-
+        } catch (IOException | SmackException | XMPPException e) {
+            sConnectionState = ConnectionState.FAILED;
+            Utils.broadcastConnectionMessageToFlutter(
+                    this,
+                    ConnectionState.FAILED,
+                    "Failed to connect: check credentials and server settings."
+            );
+            Utils.printLog("Failed to initialize XMPP connection.");
+            e.printStackTrace();
+            stopSelf();
         }
-        start();
-        return Service.START_STICKY;
-    }
-
-    @Override
-    public void onDestroy() {
-
-        Utils.printLog(" onDestroy(): ");
-        super.onDestroy();
-        stop();
     }
 }
-

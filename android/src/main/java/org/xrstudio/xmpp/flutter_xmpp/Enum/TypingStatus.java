@@ -1,5 +1,9 @@
 package org.xrstudio.xmpp.flutter_xmpp.Enum;
 
 public enum TypingStatus {
-    COMPOSING, PAUSED, ACTIVE, GONE, INACTIVE;
+    COMPOSING,
+    PAUSED,
+    ACTIVE,
+    GONE,
+    INACTIVE
 }

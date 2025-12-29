@@ -2,16 +2,13 @@
 //  AppConstants.swift
 //  Runner
 //
-//  Created by iMac on 25/11/20.
-//  Copyright © 2020 The Chromium Authors. All rights reserved.
+//  Updated for FlutterXmppPlugin singleton
 //
 
 import Foundation
 import XMPPFramework
 
-//let APP_DELEGATE = UIApplication.shared.delegate as! FlutterXmppPlugin
-var APP_DELEGATE = FlutterXmppPlugin() as! FlutterXmppPlugin
-
+// MARK: - XMPP Config
 public var xmpp_HostName: String = ""
 public var xmpp_HostPort: Int16 = 0
 public var xmpp_UserId: String = ""
@@ -22,210 +19,173 @@ public var xmpp_AutoDeliveryReceipt: Bool = false
 public var xmpp_AutoReConnection: Bool = true
 public var xmpp_UseStream: Bool = true
 
-let default_isPersistent : Bool = false
+let default_isPersistent: Bool = false
 
-//MARK:- Struct's
+// MARK: - Plugin Methods
 struct pluginMethod {
-    static let login : String                       = "login"
-    static let logout : String                      = "logout"
-    static let sendMessage : String                 = "send_message"
-    static let sendMessageInGroup : String          = "send_group_message"
-    static let sendCustomMessage : String           = "send_custom_message"
-    static let sendCustomMessageInGroup : String    = "send_customgroup_message"
-    static let createMUC : String                   = "create_muc"
-    static let joinMUCGroups : String               = "join_muc_groups"
-    static let joinMUCGroup : String                = "join_muc_group"
-    static let sendReceiptDelivery : String         = "send_delivery_receipt"
-    static let addMembersInGroup : String           = "add_members_in_group"
-    static let addAdminsInGroup : String            = "add_admins_in_group"
-    static let addOwnersInGroup : String            = "add_owners_in_group"
-    static let removeMembersInGroup : String        = "remove_members_from_group"
-    static let removeAdminsInGroup : String         = "remove_admins_from_group"
-    static let removeOwnersInGroup : String         = "remove_owners_from_group"
-    static let getMembers : String                  = "get_members"
-    static let getAdmins : String                   = "get_admins"
-    static let getOwners : String                   = "get_owners"
-    static let getLastSeen : String                 = "get_last_seen"
-    static let createRosters : String               = "create_roster"
-    static let getMyRosters : String                = "get_my_rosters"
-    static let reqMAM : String                      = "request_mam"
-    static let getPresence : String                 = "get_presence"
-    static let changeTypingStatus : String          = "change_typing_status"
-    static let changePresenceType : String          = "change_presence_type"
-    static let getConnectionStatus : String         = "get_connection_status"
+    static let login = "login"
+    static let logout = "logout"
+    static let sendMessage = "send_message"
+    static let sendMessageInGroup = "send_group_message"
+    static let sendCustomMessage = "send_custom_message"
+    static let sendCustomMessageInGroup = "send_customgroup_message"
+    static let createMUC = "create_muc"
+    static let joinMUCGroups = "join_muc_groups"
+    static let joinMUCGroup = "join_muc_group"
+    static let sendReceiptDelivery = "send_delivery_receipt"
+    static let addMembersInGroup = "add_members_in_group"
+    static let addAdminsInGroup = "add_admins_in_group"
+    static let addOwnersInGroup = "add_owners_in_group"
+    static let removeMembersInGroup = "remove_members_from_group"
+    static let removeAdminsInGroup = "remove_admins_from_group"
+    static let removeOwnersInGroup = "remove_owners_from_group"
+    static let getMembers = "get_members"
+    static let getAdmins = "get_admins"
+    static let getOwners = "get_owners"
+    static let getLastSeen = "get_last_seen"
+    static let createRosters = "create_roster"
+    static let getMyRosters = "get_my_rosters"
+    static let reqMAM = "request_mam"
+    static let getPresence = "get_presence"
+    static let changeTypingStatus = "change_typing_status"
+    static let changePresenceType = "change_presence_type"
+    static let getConnectionStatus = "get_connection_status"
+    static let enableMessageCarbons = "enable_message_carbons"
 }
 
+// MARK: - Message Types
 struct pluginMessType {
-    static let Incoming : String = "incoming"
-    static let Message : String = "Message"
-    static let ACK : String = "Ack";
-    static let ACK_DELIVERY : String = "Delivery-Ack";
-    static let ACK_READ : String = "Read-Ack";
+    static let Incoming = "incoming"
+    static let Message = "Message"
+    static let ACK = "Ack"
+    static let ACK_DELIVERY = "Delivery-Ack"
+    static let ACK_READ = "Read-Ack"
 }
 
+// MARK: - Chat Types
 struct xmppChatType {
-    static let GROUPCHAT : String = "groupchat"
-    static let CHAT : String = "chat"
-    static let NORMAL : String = "normal"
+    static let GROUPCHAT = "groupchat"
+    static let CHAT = "chat"
+    static let NORMAL = "normal"
 }
+
+// MARK: - Constants
 struct xmppConstants {
-    static let Conference : String = "conference"
-    
-    static let ERROR : String = "ERROR"
-    static let SUCCESS : String = "SUCCESS"
-    
-    static let Resource : String = "iOS"
-    static let BODY : String = "body"
-    static let ID : String = "id"
-    static let TO : String = "to"
-    static let FROM : String = "from"
-    
-    static let DataNil : String = "Data nil"
-    
-    static let errorMessOfMUC : String = "Owner privileges required"
-    
-    static let presence : String = "presence"
+    static let Conference = "conference"
+    static let ERROR = "ERROR"
+    static let SUCCESS = "SUCCESS"
+    static let Resource = "iOS"
+    static let BODY = "body"
+    static let ID = "id"
+    static let TO = "to"
+    static let FROM = "from"
+    static let DataNil = "Data nil"
+    static let errorMessOfMUC = "Owner privileges required"
+    static let presence = "presence"
 }
+
+// MARK: - Connection Status
 struct xmppConnStatus {
-    static let Processing : String = "connecting"
-    static let Authenticated : String = "authenticated"
-    static let Failed : String = "failed"
-    static let Disconnect : String = "disconnected"
-    static let Connected : String = "connected"
+    static let Processing = "connecting"
+    static let Authenticated = "authenticated"
+    static let Failed = "failed"
+    static let Disconnect = "disconnected"
+    static let Connected = "connected"
 }
+
+// MARK: - MUC Roles
 struct xmppMUCRole {
-    /*
-     https://github.com/robbiehanson/XMPPFramework/issues/521#issuecomment-155471382
-     moderator
-     participant
-     visitor
-     moderator
-     participant
-     visitor
-     */
-    static let Owner : String = "owner"
-    static let Admin : String = "admin"
-    static let Member : String = "member"
-    static let None : String = "none"
+    static let Owner = "owner"
+    static let Admin = "admin"
+    static let Member = "member"
+    static let None = "none"
 }
 
+// MARK: - Typing Status
 struct xmppTypingStatus {
-    static let Active : String = "active"
-    static let Composing : String = "composing"
-    static let Paused : String = "paused"
-    static let Inactive : String = "inactive"
-    static let Gone : String = "gone"
+    static let Active = "active"
+    static let Composing = "composing"
+    static let Paused = "paused"
+    static let Inactive = "inactive"
+    static let Gone = "gone"
 }
 
+// MARK: - Group Info
 class groupInfo {
-    var name : String = ""
-    var isPersistent : Bool = default_isPersistent
-    var objRoomXMPP : XMPPRoom?
-    
-    func `init`() {
-    }
-    func initWith(name: String, isPersistent: Bool) {
+    var name: String = ""
+    var isPersistent: Bool = default_isPersistent
+    var objRoomXMPP: XMPPRoom?
+
+    init() {}
+    init(name: String, isPersistent: Bool) {
         self.name = name
         self.isPersistent = isPersistent
     }
-    func initWith(name: String, isPersistent: Bool, objRoomXMPP : XMPPRoom?) {
-        self.initWith(name: name, isPersistent: isPersistent)
+    init(name: String, isPersistent: Bool, objRoomXMPP: XMPPRoom?) {
+        self.init(name: name, isPersistent: isPersistent)
         self.objRoomXMPP = objRoomXMPP
     }
 }
 
+// MARK: - Logger Info
 class xmppLoggerInfo {
-    var isLogEnable : Bool = false
-    var logPath : String = ""
-    
-    func `init`() {
-    }
+    var isLogEnable: Bool = false
+    var logPath: String = ""
+    init() {}
 }
 
+// MARK: - XML Elements
 struct eleTIME {
-    /// Value - TIME
-    static let Name : String = "TIME"
-    /// Value - urn:xmpp:time
-    static let Namespace : String = "urn:xmpp:time"
-    /// Value - ts
-    static let Kay : String = "ts"
+    static let Name = "TIME"
+    static let Namespace = "urn:xmpp:time"
+    static let Key = "ts"
 }
 
 struct eleCustom {
-    /// Value - CUSTOM
-    static let Name : String = "CUSTOM"
-    /// Value - urn:xmpp:custom
-    static let Namespace : String = "urn:xmpp:custom"
-    /// Value - custom
-    static let Kay : String = "custom"
+    static let Name = "CUSTOM"
+    static let Namespace = "urn:xmpp:custom"
+    static let Key = "custom"
 }
-
 
 struct errorCustom {
-    /// Value - CUSTOM
-    static let Name : String = "error"
-    /// Value - custom
-    static let Key : String = "text"
+    static let Name = "error"
+    static let Key = "text"
 }
 
-//MARK:- Enum's
+// MARK: - Enums
 enum XMPPControllerError: Error {
     case wrongUserJID
 }
-enum xmppConnectionStatus : Int {
-    case None
-    case Processing
-    case Sucess
-    case Disconnect
-    case Failed
-    case Connected
-    
-    var value: Int {
-        return rawValue
-    }
+
+enum xmppConnectionStatus: Int {
+    case None, Processing, Sucess, Disconnect, Failed, Connected
+    var value: Int { rawValue }
 }
-enum xmppMUCUserType {
-    case Owner
-    case Admin
-    case Member
-}
-enum xmppMUCUserActionType {
-    case Add
-    case Remove
-}
-enum Status {
-    case Online
-    case Offline
-}
-enum LogType : String {
+
+enum xmppMUCUserType { case Owner, Admin, Member }
+enum xmppMUCUserActionType { case Add, Remove }
+enum Status { case Online, Offline }
+
+enum LogType: String {
     case none = "default"
-    
-    case receiveFromFlutter             = "methodReceiveFromFlutter" //----
-    case receiveStanzaAckFromServer     = "receiveStanzaAckFromServer" //---
-    case receiveMessageFromServer       = "receiveMessageFromServer" //---
-    
-    case sentMessageToFlutter           = "sentMessageToFlutter" //---
-    case sentMessageToServer            = "sentMessageToServer" //--
-    case sentCustomMessageToServer      = "sentCustomMessageToServer" //--
-    case sentDeliveryReceiptToServer    = "sentDeliveryReceiptToServer" //--
+    case receiveFromFlutter = "methodReceiveFromFlutter"
+    case receiveStanzaAckFromServer = "receiveStanzaAckFromServer"
+    case receiveMessageFromServer = "receiveMessageFromServer"
+    case sentMessageToFlutter = "sentMessageToFlutter"
+    case sentMessageToServer = "sentMessageToServer"
+    case sentCustomMessageToServer = "sentCustomMessageToServer"
+    case sentDeliveryReceiptToServer = "sentDeliveryReceiptToServer"
 }
 
-//MARK:- Extension
+// MARK: - Notification Names
 extension Notification.Name {
-    static let xmpp_ConnectionReq = Notification.Name(rawValue: "xmpp_ConnectionReq")
-    static let xmpp_ConnectionStatus = Notification.Name(rawValue: "xmpp_ConnectionStatus")
+    static let xmpp_ConnectionReq = Notification.Name("xmpp_ConnectionReq")
+    static let xmpp_ConnectionStatus = Notification.Name("xmpp_ConnectionStatus")
 }
 
+// MARK: - String Extension
 extension String {
-    var boolValue: Bool {
-        return (self as NSString).boolValue
-    }
-    
-    func trim() -> String {
-        self.trimmingCharacters(in: .whitespaces)
-    }
-    
-    var containsWhitespace : Bool {
-        return(self.rangeOfCharacter(from: .whitespacesAndNewlines) != nil)
-    }
+    var boolValue: Bool { (self as NSString).boolValue }
+    func trim() -> String { trimmingCharacters(in: .whitespacesAndNewlines) }
+    var containsWhitespace: Bool { rangeOfCharacter(from: .whitespacesAndNewlines) != nil }
 }

@@ -9,222 +9,195 @@ import Foundation
 import XMPPFramework
 
 extension XMPPController {
-    /// This method handles sending the message to one-one chat
-    func sendMessage(messageBody:String,
-                     time:String,
-                     reciverJID:String,
+    
+    // MARK: - Send one-to-one or group message
+    func sendMessage(messageBody: String,
+                     time: String,
+                     receiverJID: String,
                      messageId: String,
-                     isGroup : Bool = false,
-                     customElement : String,
-                     withStrem : XMPPStream) {
-        let vJid : XMPPJID? = XMPPJID(string: reciverJID)
+                     isGroup: Bool = false,
+                     customElement: String,
+                     withStream stream: XMPPStream) {
         
-        let vChatType : String = isGroup ? xmppChatType.GROUPCHAT : xmppChatType.CHAT
+        guard let jid = XMPPJID(string: receiverJID) else {
+            print("\(#function) | Invalid receiver JID: \(receiverJID)")
+            return
+        }
         
-        let xmppMessage = XMPPMessage.init(type: vChatType.lowercased(), to: vJid)
+        let chatType = isGroup ? xmppChatType.GROUPCHAT : xmppChatType.CHAT
+        let xmppMessage = XMPPMessage(type: chatType.lowercased(), to: jid)
         xmppMessage.addAttribute(withName: "xmlns", stringValue: "jabber:client")
         xmppMessage.addAttribute(withName: "id", stringValue: messageId)
         xmppMessage.addBody(messageBody)
         
-        /// Time
-        if let eleTime = self.getTimeElement(withTime: time) {
+        // Add timestamp element
+        if let eleTime = getTimeElement(withTime: time) {
             xmppMessage.addChild(eleTime)
         }
-        /// Custom Element
-        var isCustom : Bool = false
-        if let ele = self.getCustomELE(withElementName: customElement) {
+        
+        // Add custom element
+        var isCustom = false
+        if let ele = getCustomElement(withElementName: customElement) {
             xmppMessage.addChild(ele)
             isCustom = true
         }
         
+        // Add delivery receipt request if enabled
         if xmpp_AutoDeliveryReceipt {
             xmppMessage.addReceiptRequest()
         }
-        withStrem.send(xmppMessage)
         
+        stream.send(xmppMessage)
         addLogger(isCustom ? .sentCustomMessageToServer : .sentMessageToServer, xmppMessage)
     }
     
-    func sentMessageDeliveryReceipt(withReceiptId receiptId: String, jid : String, messageId : String, withStrem : XMPPStream) {
-        if receiptId.trim().isEmpty {
-            print("\(#function) | ReceiptId is empty/nil.")
-            return
-        }
-        if jid.trim().isEmpty {
-            print("\(#function) | jid is empty/nil.")
-            return
-        }
-        if messageId.trim().isEmpty {
-            print("\(#function) | MessageId is empty/nil.")
+    // MARK: - Send delivery receipt
+    func sendMessageDeliveryReceipt(receiptId: String, jid: String, messageId: String, withStream stream: XMPPStream) {
+        guard !receiptId.trim().isEmpty,
+              !jid.trim().isEmpty,
+              !messageId.trim().isEmpty else {
+            print("\(#function) | Invalid receiptId, jid, or messageId")
             return
         }
         
-        let vJid : XMPPJID? = XMPPJID(string: getJIDNameForUser(jid, withStrem: withStrem))
-        let xmppMessage = XMPPMessage.init(type: xmppChatType.NORMAL, to: vJid)
+        guard let vJid = XMPPJID(string: getJIDNameForUser(jid, withStrem: stream)) else { return }
+        let xmppMessage = XMPPMessage(type: xmppChatType.NORMAL, to: vJid)
         xmppMessage.addAttribute(withName: "id", stringValue: receiptId)
         
-        let eleReceived: XMLElement = XMLElement.init(name: "received", xmlns: "urn:xmpp:receipts")
-        eleReceived.addAttribute(withName: "id", stringValue: messageId)
-        xmppMessage.addChild(eleReceived)
+        let received = XMLElement(name: "received", xmlns: "urn:xmpp:receipts")
+        received.addAttribute(withName: "id", stringValue: messageId)
+        xmppMessage.addChild(received)
         
         xmppMessage.addReceiptRequest()
-        withStrem.send(xmppMessage)
+        stream.send(xmppMessage)
         
         addLogger(.sentDeliveryReceiptToServer, xmppMessage)
     }
-
-    //MARK: - Send Ack
-    func sendAck(_ withMessageId : String) {
-        let vMessId : String = withMessageId.trim()
-        if vMessId.isEmpty {
-            print("\(#function) | MessageId is empty/nil.")
+    
+    // MARK: - Send ACK for message to Flutter
+    func sendAck(for messageId: String) {
+        let msgId = messageId.trim()
+        guard !msgId.isEmpty else {
+            print("\(#function) | MessageId is empty/nil")
             return
         }
-        let vFrom : String = ""
-        let vBody : String = ""
-        let dicDate = ["type" : pluginMessType.ACK,
-                       "id" : vMessId,
-                       "from" : vFrom,
-                       "body" : vBody,
-                       "msgtype" : "normal"]
-        printLog("\(#function) | data: \(dicDate)")
-        addLogger(.sentMessageToFlutter, dicDate)
         
-        if let obj = APP_DELEGATE.objEventData {
-            obj(dicDate)
-        }
+        let data: [String: Any] = [
+            "type": pluginMessType.ACK,
+            "id": msgId,
+            "from": "",
+            "body": "",
+            "msgtype": "normal"
+        ]
+        
+        printLog("\(#function) | data: \(data)")
+        addLogger(.sentMessageToFlutter, data)
+        APP_DELEGATE.objEventData?(data)
     }
     
-    func senAckDeliveryReceipt(withMessageId : String) {
-        let vMessId = withMessageId.trim()
-        let vFrom : String = ""
-        let vBody : String = ""
-        let dicDate = ["type" : pluginMessType.ACK_DELIVERY,
-                       "id" : vMessId,
-                       "from" : vFrom,
-                       "body" : vBody,
-                       "msgtype" : "normal"]
-        printLog("\(#function) | data: \(dicDate)")
-        addLogger(.sentMessageToFlutter, dicDate)
-        
-        if let obj = APP_DELEGATE.objEventData {
-            obj(dicDate)
-        }
+    func sendAckDeliveryReceipt(for messageId: String) {
+        let msgId = messageId.trim()
+        let data: [String: Any] = [
+            "type": pluginMessType.ACK_DELIVERY,
+            "id": msgId,
+            "from": "",
+            "body": "",
+            "msgtype": "normal"
+        ]
+        printLog("\(#function) | data: \(data)")
+        addLogger(.sentMessageToFlutter, data)
+        APP_DELEGATE.objEventData?(data)
     }
     
-    func broadCastMessageToFlutter(dicData : [String : Any]){
-        printLog("message To push  \(dicData)")
+    // MARK: - Broadcast data to Flutter
+    func broadCastMessageToFlutter(dicData: [String: Any]) {
+        printLog("Broadcasting message: \(dicData)")
+        APP_DELEGATE.objEventData?(dicData)
     }
     
-    func sendMemberList(withUsers arrUsers: [String]) {
-        printLog("\(#function) | arrUsers: \(arrUsers)")
-        addLogger(.sentMessageToFlutter, arrUsers)
-        
-        if let callBack = APP_DELEGATE.singalCallBack {
-            callBack(arrUsers)
-        }
+    // MARK: - Send roster/member/lastActivity info
+    func sendMemberList(withUsers users: [String]) {
+        printLog("\(#function) | Users: \(users)")
+        addLogger(.sentMessageToFlutter, users)
+        APP_DELEGATE.singalCallBack?(users)
     }
     
-    func sendRosters(withUsersJid arrJid : [String]) {
-        printLog("\(#function) | arrJid: \(arrJid)")
-        addLogger(.sentMessageToFlutter, arrJid)
-        
-        if let callBack = APP_DELEGATE.singalCallBack {
-            callBack(arrJid)
-        }
+    func sendRosters(withUsersJid jids: [String]) {
+        printLog("\(#function) | JIDs: \(jids)")
+        addLogger(.sentMessageToFlutter, jids)
+        APP_DELEGATE.singalCallBack?(jids)
     }
     
-    func sendLastActivity(withTime vTime: String) {
-        printLog("\(#function) | time: \(vTime)")
-        addLogger(.sentMessageToFlutter, vTime)
-        
-        if let callBack = APP_DELEGATE.singalCallBack {
-            callBack(vTime)
-        }
+    func sendLastActivity(withTime time: String) {
+        printLog("\(#function) | time: \(time)")
+        addLogger(.sentMessageToFlutter, time)
+        APP_DELEGATE.singalCallBack?(time)
     }
     
-    func sendMUCJoinStatus(_ isSuccess: Bool, _ roomName : String, _ error : String) {
-        printLog("\(#function) | isSuccess: \(isSuccess)")
-        addLogger(.sentMessageToFlutter, isSuccess)
-        
-        if( isSuccess){
-            APP_DELEGATE.updateMUCJoinStatus(withRoomname: roomName, status: isSuccess, error: error)
+    // MARK: - MUC Join/Create Status
+    func sendMUCJoinStatus(_ success: Bool, roomName: String, error: String) {
+        printLog("\(#function) | success: \(success)")
+        addLogger(.sentMessageToFlutter, success)
+        if success {
+            APP_DELEGATE.updateMUCJoinStatus(withRoomname: roomName, status: success, error: error)
         }
-        
-        if let callBack = APP_DELEGATE.singalCallBack {
-            callBack(isSuccess)
-        }
+        APP_DELEGATE.singalCallBack?(success)
     }
     
-    func sendMUCCreateStatus(_ isSuccess: Bool) {
-        printLog("\(#function) | isSuccess: \(isSuccess)")
-        addLogger(.sentMessageToFlutter, isSuccess)
-        
-        if let callBack = APP_DELEGATE.singalCallBack {
-            callBack(isSuccess)
-        }
+    func sendMUCCreateStatus(_ success: Bool) {
+        printLog("\(#function) | success: \(success)")
+        addLogger(.sentMessageToFlutter, success)
+        APP_DELEGATE.singalCallBack?(success)
     }
     
-    func sendPresence(withJid jid: String, type: String, move: String) {
-        let dicParam = ["type" : xmppConstants.presence,
-                        "from" : jid,
-                        "presenceType" : type,
-                        "presenceMode" : move]
-        addLogger(.sentMessageToFlutter, dicParam)
-        
-//        if let callBack = APP_DELEGATE.singalCallBack {
-//            callBack(dicParam)
-//        }
-        APP_DELEGATE.objEventData!(dicParam)
+    // MARK: - Send presence updates
+    func sendPresence(withJid jid: String, type: String, mode: String) {
+        let dic: [String: Any] = [
+            "type": xmppConstants.presence,
+            "from": jid,
+            "presenceType": type,
+            "presenceMode": mode
+        ]
+        addLogger(.sentMessageToFlutter, dic)
+        APP_DELEGATE.objEventData?(dic)
     }
     
-    
-    func sendTypingStatus(withJid jid: String, status : String, withStrem : XMPPStream) {
-        let vJid : XMPPJID? = XMPPJID(string: jid)
+    // MARK: - Send typing status
+    func sendTypingStatus(withJid jid: String, status: String, withStream stream: XMPPStream) {
+        guard let vJid = XMPPJID(string: jid) else { return }
         
-        let vChatType : String = xmppChatType.CHAT //? xmppChatType.GROUPCHAT : xmppChatType.CHAT
-        let xmppMessage = XMPPMessage.init(type: vChatType.lowercased(), to: vJid)
+        let chatType = xmppChatType.CHAT
+        let xmppMessage = XMPPMessage(type: chatType.lowercased(), to: vJid)
         
-        var vStatus : XMPPMessage.ChatState = .composing
-        switch status {
-        case xmppTypingStatus.Active:
-            vStatus = .active
-            
-        case xmppTypingStatus.Composing:
-            vStatus = .composing
-            
-        case xmppTypingStatus.Paused:
-            vStatus = .paused
+        let chatState: XMPPMessage.ChatState = {
+            switch status {
+            case xmppTypingStatus.Active: return .active
+            case xmppTypingStatus.Composing: return .composing
+            case xmppTypingStatus.Paused: return .paused
+            case xmppTypingStatus.Inactive: return .inactive
+            case xmppTypingStatus.Gone: return .gone
+            default: return .gone
+            }
+        }()
         
-        case xmppTypingStatus.Inactive:
-            vStatus = .inactive
-            
-        case xmppTypingStatus.Gone:
-            vStatus = .gone
-            
-        default:
-            vStatus = .gone
-        }
-        xmppMessage.addChatState(vStatus)
-        withStrem.send(xmppMessage)
-        
+        xmppMessage.addChatState(chatState)
+        stream.send(xmppMessage)
         addLogger(.sentMessageToServer, xmppMessage)
     }
     
-    //MARK: -
-    private func getTimeElement(withTime time :String) -> XMLElement? {
-        let ele: XMLElement = XMLElement.init(name: eleTIME.Name, xmlns: eleTIME.Namespace)
-        ele.addChild(XMLElement.init(name: eleTIME.Kay, stringValue: time))
+    // MARK: - Private helpers for custom/time elements
+    private func getTimeElement(withTime time: String) -> XMLElement? {
+        let ele = XMLElement(name: eleTIME.Name, xmlns: eleTIME.Namespace)
+        ele.addChild(XMLElement(name: eleTIME.Kay, stringValue: time))
         return ele
     }
     
-    private func getCustomELE(withElementName name :String) -> XMLElement? {
-        if name.trim().isEmpty {
-            //print("\(#function) | custom element '\(name)' is empty/nil.")
-            return nil
-        }
-        let ele: XMLElement = XMLElement.init(name: eleCustom.Name, xmlns: eleCustom.Namespace)
-        ele.addChild(XMLElement.init(name: eleCustom.Kay, stringValue: name))
+    private func getCustomElement(withElementName name: String) -> XMLElement? {
+        let trimmedName = name.trim()
+        guard !trimmedName.isEmpty else { return nil }
+        
+        let ele = XMLElement(name: eleCustom.Name, xmlns: eleCustom.Namespace)
+        ele.addChild(XMLElement(name: eleCustom.Kay, stringValue: trimmedName))
         return ele
     }
 }

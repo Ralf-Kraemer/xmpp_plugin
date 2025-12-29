@@ -8,96 +8,95 @@
 import Foundation
 import Flutter
 
-//MARK:- Notifcation Observers
-public func postNotification(Name:Notification.Name, withObject: Any? = nil, userInfo:[AnyHashable : Any]? = nil){
-    NotificationCenter.default.post(name: Name, object: withObject, userInfo: userInfo)
+// MARK: - Notification Observers
+public func postNotification(name: Notification.Name, object: Any? = nil, userInfo: [AnyHashable: Any]? = nil) {
+    NotificationCenter.default.post(name: name, object: object, userInfo: userInfo)
 }
 
+// MARK: - Timestamp Utilities
 public func getTimeStamp() -> Int64 {
-  let value = NSDate().timeIntervalSince1970 * 1000
-  return Int64(value)
+    return Int64(Date().timeIntervalSince1970 * 1000)
 }
 
-public func getCurretTime() -> String {
+public func getCurrentTime() -> String {
     let dateFormat = DateFormatter()
     dateFormat.dateFormat = "yyyy-MM-dd HH:mm:ss.SSSS"
     return dateFormat.string(from: Date())
 }
 
-func printLog<T>(_ message : T) {
+// MARK: - Logging Helpers
+func printLog<T>(_ message: T) {
     print(message)
 }
 
-func addLogger(_ logType : LogType, _ value : Any) {
-    var vMess : String = "Time: \(getCurretTime().description)\n"
-    vMess += "Action: \(logType.rawValue)\n"
+func addLogger(_ logType: LogType, _ value: Any) {
+    var logMessage = "Time: \(getCurrentTime())\n"
+    logMessage += "Action: \(logType.rawValue)\n"
     
     switch logType {
     case .receiveFromFlutter:
         if let data = value as? FlutterMethodCall {
-            vMess += "NativeMethod: \(data.method)\n"
-            vMess += "Content: \(data.arguments.debugDescription)\n\n"
+            logMessage += "NativeMethod: \(data.method)\n"
+            logMessage += "Content: \(data.arguments.debugDescription)\n\n"
         }
-    
     default:
-        vMess += "Time: \(getTimeStamp().description)\n"
-        vMess += "Action: \(logType.rawValue)\n"
-        vMess += "Content: \(value)\n\n"        
+        logMessage += "Timestamp: \(getTimeStamp())\n"
+        logMessage += "Content: \(value)\n\n"
     }
-    printLog(vMess)
     
+    printLog(logMessage)
     
-    //------------------------------------------------------
-    //Add Logger in log-file
+    // Add Logger in log-file
     guard let objLogger = APP_DELEGATE.objXMPPLogger else {
-        printLog("\(#function) | Not initialize XMPPLogger")
+        printLog("\(#function) | XMPPLogger not initialized")
         return
     }
+    
     if !objLogger.isLogEnable {
-        printLog("\(#function) | XMPP Logger Disable.")
+        printLog("\(#function) | XMPP Logger is disabled.")
+        return
     }
-    AppLogger.log(vMess)
+    
+    AppLogger.log(logMessage)
 }
 
+// MARK: - AppLogger
 class AppLogger {
     static var logFile: URL? {
         guard let objLogger = APP_DELEGATE.objXMPPLogger else { return nil }
-        let url = URL(fileURLWithPath: objLogger.logPath)
-        return url
+        return URL(fileURLWithPath: objLogger.logPath)
     }
     
     static func log(_ message: String) {
-        AppLogger.createLogFile(withMessage : message)
+        writeLogFile(withMessage: message)
     }
     
-    private static func createLogFile(withMessage message : String) {
-        guard let logFile = AppLogger.logFile else {
-            return
-        }
-        guard let data = (message + "\n").data(using: String.Encoding.utf8) else {
-            return
-        }
+    private static func writeLogFile(withMessage message: String) {
+        guard let logFile = logFile, let data = (message + "\n").data(using: .utf8) else { return }
+        
         if FileManager.default.fileExists(atPath: logFile.path) {
-            if let fileHandle = try? FileHandle(forWritingTo: logFile) {
+            do {
+                let fileHandle = try FileHandle(forWritingTo: logFile)
+                defer { fileHandle.closeFile() }
                 fileHandle.seekToEndOfFile()
                 fileHandle.write(data)
-                fileHandle.closeFile()
+            } catch {
+                print("\(#function) | Error writing to log file: \(error.localizedDescription) | Path: \(logFile.path)")
             }
-        }
-        else {
+        } else {
             do {
                 try data.write(to: logFile, options: .atomicWrite)
-            }
-            catch let err {
-                print("\(#function) | err: \(err.localizedDescription) | filePath: \(logFile.absoluteString)")
+            } catch {
+                print("\(#function) | Error creating log file: \(error.localizedDescription) | Path: \(logFile.path)")
             }
         }
     }
     
-    /*func deleteLogFile() {
-        guard let logFile = AppLogger.logFile else { return }
-        let isFileExists = FileManager.default.fileExists(atPath: logFile.path)
-        if !isFileExists { return }
+    /*
+    static func deleteLogFile() {
+        guard let logFile = logFile else { return }
+        guard FileManager.default.fileExists(atPath: logFile.path) else { return }
         try? FileManager.default.removeItem(at: logFile)
-    }*/
+    }
+    */
 }

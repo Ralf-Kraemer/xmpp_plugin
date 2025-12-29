@@ -1,45 +1,44 @@
 //
 //  XMPPController.swift
 //
-//
 
 import UIKit
 import XMPPFramework
-//dididdidreimport "XMPPMessage.h"
 
-class XMPPController : NSObject {
-    //MARK:- Variable
+class XMPPController: NSObject {
+
+    // MARK: - Singleton
     static let sharedInstance = XMPPController()
 
-    //TODO:
-    var xmppStream = XMPPStream()
-    var xmppReconnect = XMPPReconnect()
-    var xmppRoom : XMPPRoom?
-    var xmppStreamManagement : XMPPStreamManagement = XMPPStreamManagement(storage: XMPPStreamManagementMemoryStorage.init(), dispatchQueue: DispatchQueue.main)
-    var xmppRoster : XMPPRoster?
+    // MARK: - XMPP Components
+    var xmppStream: XMPPStream!
+    var xmppReconnect: XMPPReconnect!
+    var xmppRoster: XMPPRoster?
     var xmppRosterStorage: XMPPRosterCoreDataStorage?
-    var xmppLastActivity = XMPPLastActivity()
+    var xmppLastActivity: XMPPLastActivity!
+    var xmppMAM: XMPPMessageArchiveManagement?
 
-    /// Using get chat Archive Messages
-    var xmppMAM: XMPPMessageArchiveManagement? // = XMPPMessageArchiveManagement.init()
+    var xmppRoom: XMPPRoom?
+    var xmppStreamManagement: XMPPStreamManagement!
 
+    // MARK: - User/Connection Info
     internal var hostName: String = ""
     internal var hostPort: Int16 = 0
     internal var userId: String = ""
-    internal var userJID = XMPPJID()
+    internal var userJID: XMPPJID!
     private var password: String = ""
-    internal var arrGroups : [groupInfo] = []
+    internal var arrGroups: [groupInfo] = []
 
-    //MARK:-
+    // MARK: - Initializers
     override init() {
         super.init()
     }
 
-    init(hostName: String, hostPort : Int16, userId: String, password: String, resource: String) throws {
+    init(hostName: String, hostPort: Int16, userId: String, password: String, resource: String) throws {
         super.init()
 
         let stUserJid = "\(userId)@\(hostName)"
-        guard let userJID = XMPPJID.init(string: stUserJid, resource: resource) else {
+        guard let userJID = XMPPJID(string: stUserJid, resource: resource) else {
             APP_DELEGATE.objXMPPConnStatus = .Failed
             throw XMPPControllerError.wrongUserJID
         }
@@ -50,328 +49,111 @@ class XMPPController : NSObject {
         self.password = password
         self.userJID = userJID
 
-        /// Stream Configuration
-        self.xmppStream = XMPPStream.init()
-        self.xmppStream.hostName = hostName
-        self.xmppStream.hostPort = UInt16(hostPort)
-        self.xmppStream.myJID = userJID
-
-        //SSL Connection
-        if xmpp_RequireSSLConnection {
-            self.xmppStream.startTLSPolicy = XMPPStreamStartTLSPolicy.required
-        }
-        self.xmppStream.addDelegate(self, delegateQueue: DispatchQueue.main)
-
-        if xmpp_AutoReConnection {
-           /// xmppReconnect Configuration
-            xmppReconnect = XMPPReconnect()
-            self.xmppReconnect.manualStart()
-            self.xmppReconnect.activate(self.xmppStream)
-            self.xmppReconnect.addDelegate(self, delegateQueue: DispatchQueue.main)
-
-        }
-
-        /// xmppRoster Configuration
-        self.xmppRosterStorage = XMPPRosterCoreDataStorage.init()
-        if let objRosSto = self.xmppRosterStorage {
-            self.xmppRoster = XMPPRoster.init(rosterStorage: objRosSto)
-            self.xmppRoster?.autoFetchRoster = true
-            self.xmppRoster?.autoAcceptKnownPresenceSubscriptionRequests = true
-            self.xmppRoster?.activate(self.xmppStream)
-            self.xmppRoster?.addDelegate(self, delegateQueue: DispatchQueue.main)
-        }
-
-        /// xmppLastActivity Configuration
-        self.xmppLastActivity = XMPPLastActivity.init()
-        self.xmppLastActivity.activate(self.xmppStream)
-        self.xmppLastActivity.addDelegate(self, delegateQueue: DispatchQueue.main)
-
-        //Archive Messge
-        self.xmppMAM = XMPPMessageArchiveManagement.init()
-        self.xmppMAM?.activate(self.xmppStream)
-        self.xmppMAM?.addDelegate(self, delegateQueue: DispatchQueue.main)
-        self.xmppMAM?.retrieveFormFields()
+        setupStream()
+        setupReconnect()
+        setupRoster()
+        setupLastActivity()
+        setupMAM()
     }
 
+    // MARK: - Setup
+    private func setupStream() {
+        xmppStream = XMPPStream()
+        xmppStream.myJID = userJID
+        xmppStream.hostName = hostName
+        xmppStream.hostPort = UInt16(hostPort)
+        if xmpp_RequireSSLConnection { xmppStream.startTLSPolicy = .required }
+        xmppStream.addDelegate(self, delegateQueue: DispatchQueue.main)
+    }
+
+    private func setupReconnect() {
+        if xmpp_AutoReConnection {
+            xmppReconnect = XMPPReconnect()
+            xmppReconnect.manualStart()
+            xmppReconnect.activate(xmppStream)
+            xmppReconnect.addDelegate(self, delegateQueue: DispatchQueue.main)
+        }
+    }
+
+    private func setupRoster() {
+        xmppRosterStorage = XMPPRosterCoreDataStorage()
+        if let storage = xmppRosterStorage {
+            xmppRoster = XMPPRoster(rosterStorage: storage)
+            xmppRoster?.autoFetchRoster = true
+            xmppRoster?.autoAcceptKnownPresenceSubscriptionRequests = true
+            xmppRoster?.activate(xmppStream)
+            xmppRoster?.addDelegate(self, delegateQueue: DispatchQueue.main)
+        }
+    }
+
+    private func setupLastActivity() {
+        xmppLastActivity = XMPPLastActivity()
+        xmppLastActivity.activate(xmppStream)
+        xmppLastActivity.addDelegate(self, delegateQueue: DispatchQueue.main)
+    }
+
+    private func setupMAM() {
+        xmppMAM = XMPPMessageArchiveManagement()
+        xmppMAM?.activate(xmppStream)
+        xmppMAM?.addDelegate(self, delegateQueue: DispatchQueue.main)
+        xmppMAM?.retrieveFormFields()
+    }
+
+    // MARK: - Connection
     func connect() {
-        if !self.xmppStream.isDisconnected {
-            printLog("\(#function) | XMPPConnected - Yes")
+        guard xmppStream.isDisconnected else {
+            printLog("\(#function) | Already connected")
             return
         }
         do {
-            var vTimeout : TimeInterval = XMPPStreamTimeoutNone
-            vTimeout = 60.00
-            try self.xmppStream.connect(withTimeout: vTimeout)
+            try xmppStream.connect(withTimeout: 60.0)
             APP_DELEGATE.objXMPPConnStatus = .Processing
-        } catch let error {
-            print("\(#function) | Error: connect() | error: \(error.localizedDescription)")
+        } catch {
+            print("\(#function) | Error connecting: \(error.localizedDescription)")
             APP_DELEGATE.objXMPPConnStatus = .Failed
         }
     }
 
-    func disconnect(withStrem: XMPPStream) {
-        self.changeStatus(.Offline, withXMPPStrem: withStrem)
-        self.xmppStream.disconnectAfterSending()
-
+    func disconnect() {
+        changeStatus(.Offline)
+        xmppStream.disconnectAfterSending()
         APP_DELEGATE.objXMPPConnStatus = .Disconnect
     }
 
     func restart() {
-        self.xmppStream.disconnect()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { self.connect() }
-    }
-
-    func isConnected() ->Bool {
-        return self.xmppStream.isConnected
-    }
-
-    func isAuthenticated() ->Bool {
-        return self.xmppStream.isAuthenticated
-    }
-
-    func isSendMessage() ->Bool {
-        return (self.isConnected() && self.isAuthenticated())
-    }
-
-    func getUserId(usingXMPPStream objXMPPStream : XMPPStream) -> String {
-        var vUserId : String = ""
-        if let value = objXMPPStream.myJID?.description {
-            vUserId = (value.components(separatedBy: "@").first ?? "").trim()
+        xmppStream.disconnect()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            self?.connect()
         }
-        return vUserId
     }
 
-    func getJIDNameForUser(_ jid : String, withStrem: XMPPStream) -> String {
-        var vHost : String = ""
-        if let value = withStrem.hostName { vHost = value.trim() }
-        if jid.contains(vHost) { return jid }
-        return [jid, "@", vHost].joined(separator: "")
+    func isConnected() -> Bool { xmppStream.isConnected }
+    func isAuthenticated() -> Bool { xmppStream.isAuthenticated }
+    func isSendMessage() -> Bool { isConnected() && isAuthenticated() }
+
+    // MARK: - User/Status helpers
+    func getUserId() -> String {
+        return xmppStream.myJID?.user?.trim() ?? ""
     }
 
-    //MARK:- User status
-    func changeStatus(_ userStatus: Status, withXMPPStrem xmppStream : XMPPStream) {
-        let vStatus : String = (userStatus == .Online) ? "available" : "unavailable"
-        let presence = XMPPPresence(type: vStatus.trim())
+    func getJIDNameForUser(_ jid: String) -> String {
+        let trimmedJid = jid.trim()
+        if trimmedJid.contains(hostName) { return trimmedJid }
+        return "\(trimmedJid)@\(hostName)"
+    }
+
+    func changeStatus(_ status: Status) {
+        let type = (status == .Online) ? "available" : "unavailable"
+        let presence = XMPPPresence(type: type)
         xmppStream.send(presence)
     }
 
-    func changePresenceWithMode(withMode vMode : String , withType vType : String, withXMPPStrem xmppStream : XMPPStream){
-
-        let vStatus : String = (vType == "available") ? "available" : "unavailable"
-        let presence = XMPPPresence(type: vStatus.trim())
-
-        let mode = DDXMLElement.element(withName: "show", stringValue: vMode.trim()) as! DDXMLElement
-        presence.addChild(mode)
-
+    func changePresence(mode: String, type: String) {
+        let presenceType = (type == "available") ? "available" : "unavailable"
+        let presence = XMPPPresence(type: presenceType)
+        let showElement = DDXMLElement.element(withName: "show", stringValue: mode) as! DDXMLElement
+        presence.addChild(showElement)
         addLogger(.sentMessageToServer, presence)
         xmppStream.send(presence)
-    }
-}
-
-extension XMPPController: XMPPStreamDelegate, XMPPMUCLightDelegate  {
-    //MARK:- stream Connect
-    func xmppStreamDidConnect(_ stream: XMPPStream) {
-        if self.password.isEmpty {
-            print("\(#function) | XMPP User password is empty/nil.")
-            return
-        }
-        do {
-            APP_DELEGATE.objXMPPConnStatus = .Connected
-            try stream.authenticate(withPassword: self.password)
-        } catch {
-            APP_DELEGATE.objXMPPConnStatus = .Disconnect
-        }
-    }
-
-    func xmppStreamDidDisconnect(_ sender: XMPPStream, withError error: Error?) {
-
-        self.changeStatus(.Offline, withXMPPStrem: sender)
-        APP_DELEGATE.objXMPPConnStatus = .Disconnect
-    }
-
-    //MARK:- Authenticate
-    func xmppStreamDidAuthenticate(_ sender: XMPPStream) {
-
-        if xmpp_UseStream {
-            self.configureStreamManagement()
-        }
-        self.changeStatus(.Online, withXMPPStrem: sender)
-
-        APP_DELEGATE.objXMPPConnStatus = .Sucess
-    }
-
-    func xmppStream(_ sender: XMPPStream, didNotAuthenticate error: DDXMLElement) {
-        APP_DELEGATE.objXMPPConnStatus = .Failed
-        //self.xmppStreamDidConnect(sender)
-    }
-}
-
-//MARK: - XMPPMessage
-extension XMPPController {
-    //MARK: XMPPMessage delegate methods
-    func xmppStream(_ sender: XMPPStream, didSend message: XMPPMessage) {
-        printLog("\(#function) | didSend message: \(message)")
-    }
-
-    func xmppStream(_ sender: XMPPStream, didReceive message: XMPPMessage) {
-        addLogger(.receiveMessageFromServer, message)
-        printLog("\(#function) | didReceive message: \(message)")
-
-        //------------------------------------------------------------------------
-        // Manange MAM Message
-        if let objMessMAM = message.mamResult?.forwardedMessage  {
-            self.manageMAMMessage(message: objMessMAM)
-            return
-        }
-
-        //------------------------------------------------------------------------
-        var tempMessage: XMPPMessage? = message
-        if let objMess = manage_MucSubMesage(message) {
-            // Manange and Get MUCSUB Message
-            tempMessage = objMess
-        }
-        guard let objMess = tempMessage else { return }
-
-        let body = (objMess.body ?? "").trim();
-        printLog("\(#function) | message body : \(body)")
-
-        //------------------------------------------------------------------------
-        //Other Chat message received
-        let vMessType : String = (objMess.type ?? xmppChatType.NORMAL).trim()
-        switch vMessType {
-
-        case xmppChatType.NORMAL:
-            if(body.isEmpty != true){
-                self.handel_ChatMessage(objMess, withType: vMessType, withStrem: sender)
-            }
-
-            self.handelNormalChatMessage(objMess, withStrem: sender)
-            break;
-
-        default:
-            self.handel_ChatMessage(objMess, withType: vMessType, withStrem: sender)
-        }
-    }
-
-    func xmppStream(_ sender: XMPPStream, didFailToSend message: XMPPMessage, error: Error) {
-        printLog("didFailToSend message : \(error.localizedDescription)")
-    }
-}
-
-extension XMPPController : XMPPStreamManagementDelegate {
-    func configureStreamManagement() {
-        let xmppSMMS = XMPPStreamManagementMemoryStorage.init()
-        xmppStreamManagement = XMPPStreamManagement(storage: xmppSMMS, dispatchQueue: DispatchQueue.main)
-        xmppStreamManagement.addDelegate(self, delegateQueue: DispatchQueue.main)
-        xmppStreamManagement.activate(self.xmppStream)
-
-        xmppStreamManagement.autoResume = true
-        xmppStreamManagement.ackResponseDelay = 0.01
-        xmppStreamManagement.requestAck()
-        xmppStreamManagement.automaticallyRequestAcks(afterStanzaCount: 1, orTimeout: 10)
-        xmppStreamManagement.automaticallySendAcks(afterStanzaCount: 1, orTimeout: 10)
-        xmppStreamManagement.enable(withResumption: true, maxTimeout: 2.0)
-
-
-        xmppStreamManagement.sendAck()
-        xmppStream.register(xmppStreamManagement)
-    }
-
-    func xmppStreamManagement(_ sender: XMPPStreamManagement, didReceiveAckForStanzaIds stanzaIds: [Any]) {
-        addLogger(.receiveStanzaAckFromServer, stanzaIds)
-        if APP_DELEGATE.objEventData == nil {
-            print("\(#function) | Nil data of APP_DELEGATE.objEventData")
-            return
-        }
-        for value in stanzaIds {
-            guard let vMessId = value as? String  else {
-                print("\(#function) | getting Invalid Message Id | \(value)")
-                continue
-            }
-            self.sendAck(vMessId)
-        }
-    }
-}
-
-//MARK: - Extension
-extension XMPPMessage {
-    public func getMessageType() -> String? {
-        return self.type
-    }
-
-    public func getSenderID() -> String? {
-        return self.from?.resource
-    }
-
-    public func getSenderID_inGroupChat() -> String? {
-        return self.from?.resource
-    }
-    public func getSenderID_inSingalChat() -> String? {
-        return self.from?.user
-    }
-
-    public func getElementValue(_ elementKey : String) -> String? {
-        return self.elements(forName: elementKey).first?.children?.first?.stringValue
-    }
-
-    func getTimeElementInfo() -> String {
-        var value : String = "0"
-        let arrMI = self.elements(forName: eleTIME.Name)
-        guard let eleMI = arrMI.first else {
-            return value
-        }
-
-        let arrMInfo = eleMI.elements(forName: eleTIME.Kay)
-        guard let vInfo = arrMInfo.first?.stringValue else {
-            return value
-        }
-        value = vInfo.trim()
-        return value
-    }
-
-    func getCustomElementInfo(withKey vKey : String) -> String {
-        var value : String = ""
-        let arrMI = self.elements(forName: eleCustom.Name)
-        guard let eleMI = arrMI.first else {
-            return value
-        }
-
-        let arrMInfo = eleMI.elements(forName: vKey)
-        guard let vInfo = arrMInfo.first?.stringValue else {
-            return value
-        }
-        value = vInfo.trim()
-        return value
-    }
-
-    func getErrorResponse(withKey vKey : String) -> String {
-        var value : String = ""
-        let arrMI = self.elements(forName: errorCustom.Name)
-        guard let eleMI = arrMI.first else {
-            return value
-        }
-
-        let arrMInfo = eleMI.elements(forName: vKey)
-        guard let vInfo = arrMInfo.first?.stringValue else {
-            return value
-        }
-        value = vInfo.trim()
-        return value
-    }
-}
-
-extension DDXMLElement {
-
-    func getElements(withKey vKey : String) -> [DDXMLElement] {
-        return self.elements(forName: vKey)
-    }
-
-    func getValue(withKey vKey : String) -> String? {
-        var value : String = ""
-        guard let vInfo = self.stringValue else {
-            return value
-        }
-        value = vInfo.trim()
-        return value
     }
 }

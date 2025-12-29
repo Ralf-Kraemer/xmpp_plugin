@@ -2,62 +2,72 @@
 //  XMPPController+Roster.swift
 //  xmpp_plugin
 //
-//  Created by xRStudio on 20/01/22.
+//  Updated for lib/ alignment
 //
 
 import Foundation
 import XMPPFramework
 
 //MARK: - XMPPRoster
-extension XMPPController : XMPPRosterDelegate {
-    func createRosters(withUserJid jid: String, withStrem: XMPPStream, objXMPP : XMPPController) {
-        printLog("\(#function) | withUserJid: \(jid)")
-        if jid.trim().isEmpty {
-            print("\(#function) | getting userJid is emtpy.")
-            return
-        }
-        let vJid : XMPPJID? = XMPPJID(string: getJIDNameForUser(jid.trim(), withStrem: withStrem))
-        if let vJid = vJid {
-            objXMPP.xmppRoster?.subscribePresence(toUser: vJid)
-            return
-        }
-        print("\(#function) | Getting Invalid Jid, not created Roster | userJid : \(jid)")
-    }
-    
-    func getMyRosters(withStrem: XMPPStream, objXMPP : XMPPController) {
-        var arrJidString : [String] = []
-        guard let arrJid = objXMPP.xmppRosterStorage?.jids(for: withStrem) else {
-            printLog("\(#function) | Not getting roster.")
-            
-            self.sendRosters(withUsersJid: arrJidString)
+extension XMPPController: XMPPRosterDelegate {
+
+    // Create roster / subscribe to a user
+    func createRosters(withUserJid jid: String) {
+        let trimmedJid = jid.trim()
+        printLog("\(#function) | withUserJid: \(trimmedJid)")
+        
+        guard !trimmedJid.isEmpty else {
+            print("\(#function) | userJid is empty.")
             return
         }
         
-        for jid in arrJid {
-            let strJid = jid.description.trim()
-            if strJid.isEmpty { continue }
-            arrJidString.append(strJid)
+        guard let vJid = XMPPJID(string: getJIDNameForUser(trimmedJid, withStrem: xmppStream!)) else {
+            print("\(#function) | Invalid JID: \(jid)")
+            return
         }
-        self.sendRosters(withUsersJid: arrJidString)
+        
+        xmppRoster?.subscribePresence(toUser: vJid)
+        printLog("\(#function) | Sent presence subscription to \(vJid)")
     }
+
+    // Get current roster and send to Flutter
+    func getMyRosters() {
+        var arrJidString: [String] = []
+        guard let jids = xmppRosterStorage?.jids(for: xmppStream!) else {
+            printLog("\(#function) | No roster found.")
+            sendRosters(withUsersJid: arrJidString)
+            return
+        }
+        
+        for jid in jids {
+            let strJid = jid.description.trim()
+            if !strJid.isEmpty {
+                arrJidString.append(strJid)
+            }
+        }
+        sendRosters(withUsersJid: arrJidString)
+        printLog("\(#function) | Sent roster to Flutter: \(arrJidString)")
+    }
+
+    // MARK: - XMPPRosterDelegate callbacks
     
-    //MARK: -
     func xmppRoster(_ sender: XMPPRoster, didReceivePresenceSubscriptionRequest presence: XMPPPresence) {
-        printLog("\(#function) | presence : \(presence)")
+        printLog("\(#function) | Received subscription request: \(presence.fromStr ?? "--")")
+        // Optional: automatically accept?
+        // sender.acceptPresenceSubscriptionRequest(from: presence.from, andAddToRoster: true)
     }
     
     func xmppRoster(_ sender: XMPPRoster, didReceiveRosterPush iq: XMPPIQ) {
-        printLog("\(#function) | iq : \(iq)")
+        printLog("\(#function) | Received roster push: \(iq)")
+        getMyRosters() // Refresh Flutter roster
     }
     
     func xmppRosterDidBeginPopulating(_ sender: XMPPRoster, withVersion version: String) {
-        printLog("\(#function) | version : \(version)")
+        printLog("\(#function) | Begin populating roster, version: \(version)")
     }
     
     func xmppRosterDidEndPopulating(_ sender: XMPPRoster) {
-        printLog("\(#function) | sender: \(sender)")
+        printLog("\(#function) | Finished populating roster")
+        getMyRosters() // Send final roster to Flutter
     }
-    
-   
-    
 }

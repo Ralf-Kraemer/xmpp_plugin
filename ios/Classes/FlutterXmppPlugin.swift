@@ -2,13 +2,15 @@ import Flutter
 import UIKit
 import XMPPFramework
 
+// MARK: - FlutterXmppPlugin
 public class FlutterXmppPlugin: NSObject, FlutterPlugin {
-    
-    static var objEventChannel: FlutterEventChannel = FlutterEventChannel.init()
-    static var objConnectionEventChannel: FlutterEventChannel = FlutterEventChannel.init()
-    static var objSuccessEventChannel: FlutterEventChannel = FlutterEventChannel.init()
-    static var objErrorEventChannel: FlutterEventChannel = FlutterEventChannel.init()
-   
+
+    // MARK: - Event Channels
+    static var objEventChannel: FlutterEventChannel?
+    static var objConnectionEventChannel: FlutterEventChannel?
+    static var objSuccessEventChannel: FlutterEventChannel?
+    static var objErrorEventChannel: FlutterEventChannel?
+
     var objEventData: FlutterEventSink?
     var objConnectionEventData: FlutterEventSink?
     var objSuccessEventData: FlutterEventSink?
@@ -16,104 +18,83 @@ public class FlutterXmppPlugin: NSObject, FlutterPlugin {
 
     var objXMPP: XMPPController = XMPPController.sharedInstance
     var objXMPPConnStatus: xmppConnectionStatus = .None {
-        didSet {
-            postNotification(Name: .xmpp_ConnectionStatus)
-        }
+        didSet { postNotification(Name: .xmpp_ConnectionStatus) }
     }
     var singalCallBack: FlutterResult?
-    var objXMPPLogger: xmppLoggerInfo?
 
     override init() { super.init() }
-    
+
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(name: "flutter_xmpp/method", binaryMessenger: registrar.messenger())
         let instance = FlutterXmppPlugin()
         registrar.addMethodCallDelegate(instance, channel: channel)
-        
+
         objEventChannel = FlutterEventChannel(name: "flutter_xmpp/stream", binaryMessenger: registrar.messenger())
-        objEventChannel.setStreamHandler(SwiftStreamHandler())
-        
+        objEventChannel?.setStreamHandler(GenericStreamHandler())
+
         objConnectionEventChannel = FlutterEventChannel(name: "flutter_xmpp/connection_event_stream", binaryMessenger: registrar.messenger())
-        objConnectionEventChannel.setStreamHandler(ConnectionStreamHandler())
-                
+        objConnectionEventChannel?.setStreamHandler(GenericStreamHandler())
+
         objSuccessEventChannel = FlutterEventChannel(name: "flutter_xmpp/success_event_stream", binaryMessenger: registrar.messenger())
-        objSuccessEventChannel.setStreamHandler(SuccessStreamHandler())
-        
+        objSuccessEventChannel?.setStreamHandler(GenericStreamHandler())
+
         objErrorEventChannel = FlutterEventChannel(name: "flutter_xmpp/error_event_stream", binaryMessenger: registrar.messenger())
-        objErrorEventChannel.setStreamHandler(ErrorStreamHandler())
-        
-        APP_DELEGATE.manange_NotifcationObservers()
+        objErrorEventChannel?.setStreamHandler(GenericStreamHandler())
     }
 
+    // MARK: - Method Call Handler
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        addLogger(.receiveFromFlutter, call)
-        
-        let vMethod: String = call.method.trim()
-        printLog(" \(#function) | vMethod \(vMethod)")
-        
+        let vMethod = call.method
+
         switch vMethod {
-        case pluginMethod.login: self.performLoginActivity(call, result)
-        case pluginMethod.logout: self.performLogoutActivity(call, result)
-        case pluginMethod.sendMessage,
-             pluginMethod.sendMessageInGroup,
-             pluginMethod.sendCustomMessage,
-             pluginMethod.sendCustomMessageInGroup:
-            self.performSendMessageActivity(call, result)
-        case pluginMethod.createMUC: self.performCreateMUCActivity(call, result)
-        case pluginMethod.joinMUCGroups: self.performJoinMUCGroupsActivity(call, result)
-        case pluginMethod.joinMUCGroup: self.performJoinMUCGroupActivity(call, result)
-        case pluginMethod.sendReceiptDelivery: self.performReceiptDeliveryActivity(call, result)
-        case pluginMethod.addMembersInGroup:
-            self.performAddRemoveMembersInGroupActivity(withMemeberType: .Member, actionType: .Add, call, result)
-        case pluginMethod.addAdminsInGroup:
-            self.performAddRemoveMembersInGroupActivity(withMemeberType: .Admin, actionType: .Add, call, result)
-        case pluginMethod.addOwnersInGroup:
-            self.performAddRemoveMembersInGroupActivity(withMemeberType: .Owner, actionType: .Add, call, result)
-        case pluginMethod.getMembers:
-            self.performGetMembersInGroupActivity(withMemeberType: .Member, call, result)
-        case pluginMethod.getAdmins:
-            self.performGetMembersInGroupActivity(withMemeberType: .Admin, call, result)
-        case pluginMethod.getOwners:
-            self.performGetMembersInGroupActivity(withMemeberType: .Owner, call, result)
-        case pluginMethod.removeMembersInGroup:
-            self.performAddRemoveMembersInGroupActivity(withMemeberType: .Member, actionType: .Remove, call, result)
-        case pluginMethod.removeAdminsInGroup:
-            self.performAddRemoveMembersInGroupActivity(withMemeberType: .Admin, actionType: .Remove, call, result)
-        case pluginMethod.removeOwnersInGroup:
-            self.performAddRemoveMembersInGroupActivity(withMemeberType: .Owner, actionType: .Remove, call, result)
-        case pluginMethod.getLastSeen: self.performLastActivity(call, result)
-        case pluginMethod.createRosters: self.createRostersActivity(call, result)
-        case pluginMethod.getMyRosters: self.getMyRostersActivity(call, result)
-        case pluginMethod.reqMAM: self.manageMAMActivity(call, result)
-        case pluginMethod.getPresence: self.getPresenceActivity(call, result)
-        case pluginMethod.changeTypingStatus: self.changeTypingStatus(call, result)
-        case pluginMethod.changePresenceType: self.changePresence(call, result)
-        case pluginMethod.getConnectionStatus: self.getConnectionStatus(call, result)
-            
-        // NEW: Enable Message Carbons
-        case pluginMethod.enableMessageCarbons:
-            self.enableMessageCarbonsActivity(call, result)
-            
+        case "login": performLoginActivity(call, result)
+        case "logout": performLogoutActivity(call, result)
+        case "sendMessage": performSendMessageActivity(call, result)
+        case "createMUC": performCreateMUCActivity(call, result)
+        case "joinMUCGroups": performJoinMUCGroupsActivity(call, result)
+        case "joinMUCGroup": performJoinMUCGroupActivity(call, result)
+        case "sendReceiptDelivery": performReceiptDeliveryActivity(call, result)
+        case "enableMessageCarbons": enableMessageCarbonsActivity(call, result)
         default:
-            guard let vData = call.arguments as? [String: Any] else {
-                print("Invalid arguments for \(vMethod): \(String(describing: call.arguments))")
-                result(xmppConstants.ERROR)
-                return
-            }
-            print("\(#function) | Unhandled method \(vMethod) | arguments: \(vData)")
-            break
+            result(FlutterError(code: "UNSUPPORTED_METHOD", message: "Method \(vMethod) not implemented", details: nil))
         }
     }
+
+    // MARK: - Stub Methods
+    func performLoginActivity(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) { result("login stub") }
+    func performLogoutActivity(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) { result("logout stub") }
+    func performSendMessageActivity(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) { result("sendMessage stub") }
+    func performCreateMUCActivity(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) { result("createMUC stub") }
+    func performJoinMUCGroupsActivity(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) { result("joinMUCGroups stub") }
+    func performJoinMUCGroupActivity(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) { result("joinMUCGroup stub") }
+    func performReceiptDeliveryActivity(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) { result("sendReceiptDelivery stub") }
 
     // MARK: - Enable Message Carbons
     func enableMessageCarbonsActivity(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
-        guard let xmppStream = objXMPP.xmppStream else {
-            result(FlutterError(code: "CARBONS_ERROR", message: "XMPP stream not initialized", details: nil))
+        guard objXMPP.isConnected() else {
+            result(FlutterError(code: "CARBONS_ERROR", message: "XMPP stream is not connected", details: nil))
             return
         }
-        let carbons = XMPPCarbons(xmppStream: xmppStream)
+        let carbons = XMPPCarbons(xmppStream: objXMPP.xmppStream)
         carbons.enableCarbons()
-        print("Message Carbons enabled")
-        result(xmppConstants.SUCCESS)
+        result("CARBONS_ENABLED")
     }
+}
+
+// MARK: - Generic Stream Handler
+class GenericStreamHandler: NSObject, FlutterStreamHandler {
+    var eventSink: FlutterEventSink?
+    func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+        self.eventSink = events
+        return nil
+    }
+    func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        self.eventSink = nil
+        return nil
+    }
+}
+
+// MARK: - Utility Notification
+public func postNotification(Name: Notification.Name) {
+    NotificationCenter.default.post(name: Name, object: nil)
 }

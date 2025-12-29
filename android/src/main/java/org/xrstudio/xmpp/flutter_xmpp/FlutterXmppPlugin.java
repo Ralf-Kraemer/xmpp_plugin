@@ -6,11 +6,12 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.util.Log;
 
+import androidx.annotation.NonNull;
+import androidx.lifecycle.DefaultLifecycleObserver;
+import androidx.lifecycle.LifecycleOwner;
+
 import org.jivesoftware.smack.SmackException;
 import org.jivesoftware.smack.XMPPException;
-
-import androidx.annotation.NonNull;
-
 import org.xrstudio.xmpp.flutter_xmpp.Connection.FlutterXmppConnection;
 import org.xrstudio.xmpp.flutter_xmpp.Connection.FlutterXmppConnectionService;
 import org.xrstudio.xmpp.flutter_xmpp.Enum.ConnectionState;
@@ -19,13 +20,12 @@ import org.xrstudio.xmpp.flutter_xmpp.Utils.Constants;
 import org.xrstudio.xmpp.flutter_xmpp.Utils.Utils;
 import org.xrstudio.xmpp.flutter_xmpp.managers.MAMManager;
 
-import android.os.Bundle;
-
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import io.flutter.embedding.engine.plugins.FlutterPlugin;
 import io.flutter.embedding.engine.plugins.activity.ActivityAware;
@@ -33,846 +33,223 @@ import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding;
 import io.flutter.plugin.common.EventChannel;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
-import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
-import io.flutter.plugin.common.MethodChannel.Result;
 
-import androidx.lifecycle.DefaultLifecycleObserver;
-import androidx.lifecycle.Lifecycle;
-import androidx.lifecycle.LifecycleOwner;
-import androidx.lifecycle.LifecycleObserver;
-import androidx.lifecycle.ProcessLifecycleOwner;
+public class FlutterXmppPlugin implements MethodChannel.MethodCallHandler,
+        FlutterPlugin, ActivityAware, EventChannel.StreamHandler, DefaultLifecycleObserver {
 
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+    public static final boolean DEBUG = true;
 
-public class FlutterXmppPlugin implements MethodCallHandler, FlutterPlugin, ActivityAware, EventChannel.StreamHandler, DefaultLifecycleObserver {
+    private Context applicationContext;
+    private MethodChannel methodChannel;
+    private EventChannel eventChannel;
+    private EventChannel successChannel;
+    private EventChannel errorChannel;
+    private EventChannel connectionChannel;
 
+    private BroadcastReceiver messageReceiver;
+    private BroadcastReceiver successReceiver;
+    private BroadcastReceiver errorReceiver;
+    private BroadcastReceiver connectionReceiver;
 
-    public static final Boolean DEBUG = true;
-    private static Context activity;
-    private String id;
-    private String time;
-    private String body;
-    private String to_jid;
-    private String userJid;
-    private String groupName;
-    private String host = "";
-    private String customString;
-    private List<String> jidList;
-    private String jid_user = "";
+    private String jidUser = "";
     private String password = "";
-    private EventChannel event_channel;
-    private ArrayList<String> membersJid;
-    private MethodChannel method_channel;
-    private EventChannel success_channel;
-    private EventChannel error_channel;
-    private EventChannel connection_channel;
-    private BroadcastReceiver mBroadcastReceiver = null;
-    private BroadcastReceiver successBroadcastReceiver = null;
-    private BroadcastReceiver errorBroadcastReceiver = null;
-    private BroadcastReceiver connectionBroadcastReceiver = null;
-    private boolean requireSSLConnection = false, autoDeliveryReceipt = false, automaticReconnection = true, useStreamManagement = true;
+    private String host = "";
+    private boolean requireSSL = false;
+    private boolean autoDeliveryReceipt = false;
+    private boolean automaticReconnection = true;
+    private boolean useStreamManagement = true;
 
-    private static BroadcastReceiver get_message(final EventChannel.EventSink events) {
-        return new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                String action = intent.getAction();
-                switch (action) {
+    private ExecutorService executorService = Executors.newSingleThreadExecutor();
 
-                    // Handle the connection events.
-                    case Constants.CONNECTION_MESSAGE:
+    // ---------- BroadcastReceiver Helpers ----------
 
-                        Map<String, Object> connectionBuild = new HashMap<>();
-                        connectionBuild.put(Constants.TYPE, Constants.CONNECTION);
-                        connectionBuild.put(Constants.STATUS, Constants.connected);
+    private BroadcastReceiver createMessageReceiver(final EventChannel.EventSink events) {
+        return intent -> {
+            if (intent == null || events == null) return;
 
-                        Utils.addLogInStorage("Action: sentMessageToFlutter, Content: " + connectionBuild.toString());
+            String action = intent.getAction();
+            if (action == null) return;
 
-                        events.success(connectionBuild);
-                        break;
+            Map<String, Object> build = new HashMap<>();
 
-                    // Handle the auth status events.
-                    case Constants.AUTH_MESSAGE:
+            switch (action) {
+                case Constants.CONNECTION_MESSAGE:
+                    build.put(Constants.TYPE, Constants.CONNECTION);
+                    build.put(Constants.STATUS, Constants.connected);
+                    Utils.addLogInStorage("Action: sentMessageToFlutter, Content: " + build.toString());
+                    events.success(build);
+                    break;
 
-                        Map<String, Object> authBuild = new HashMap<>();
-                        authBuild.put(Constants.TYPE, Constants.CONNECTION);
-                        authBuild.put(Constants.STATUS, Constants.authenticated);
+                case Constants.AUTH_MESSAGE:
+                    build.put(Constants.TYPE, Constants.CONNECTION);
+                    build.put(Constants.STATUS, Constants.authenticated);
+                    Utils.addLogInStorage("Action: sentMessageToFlutter, Content: " + build.toString());
+                    events.success(build);
+                    break;
 
-                        Utils.addLogInStorage("Action: sentMessageToFlutter, Content: " + authBuild.toString());
+                case Constants.RECEIVE_MESSAGE:
+                    build.put(Constants.TYPE, intent.getStringExtra(Constants.META_TEXT));
+                    build.put(Constants.ID, intent.getStringExtra(Constants.BUNDLE_MESSAGE_PARAMS));
+                    build.put(Constants.FROM, intent.getStringExtra(Constants.BUNDLE_FROM_JID));
+                    build.put(Constants.BODY, intent.getStringExtra(Constants.BUNDLE_MESSAGE_BODY));
+                    build.put(Constants.MSG_TYPE, intent.getStringExtra(Constants.BUNDLE_MESSAGE_TYPE));
+                    build.put(Constants.SENDER_JID, intent.getStringExtra(Constants.BUNDLE_MESSAGE_SENDER_JID));
+                    build.put(Constants.CUSTOM_TEXT, intent.getStringExtra(Constants.CUSTOM_TEXT));
+                    build.put(Constants.time, intent.getStringExtra(Constants.time));
+                    build.put(Constants.CHATSTATE_TYPE, intent.getStringExtra(Constants.CHATSTATE_TYPE));
+                    build.put(Constants.DELAY_TIME, intent.getStringExtra(Constants.DELAY_TIME));
+                    Utils.addLogInStorage("Action: sentMessageToFlutter, Content: " + build.toString());
+                    events.success(build);
+                    break;
 
-                        events.success(authBuild);
-                        break;
+                case Constants.OUTGOING_MESSAGE:
+                    build.put(Constants.TYPE, Constants.OUTGOING);
+                    build.put(Constants.ID, intent.getStringExtra(Constants.BUNDLE_MESSAGE_PARAMS));
+                    build.put(Constants.TO, intent.getStringExtra(Constants.BUNDLE_TO_JID));
+                    build.put(Constants.BODY, intent.getStringExtra(Constants.BUNDLE_MESSAGE_BODY));
+                    build.put(Constants.MSG_TYPE, intent.getStringExtra(Constants.BUNDLE_MESSAGE_TYPE));
+                    events.success(build);
+                    break;
 
-                    // Handle receiving message events.
-                    case Constants.RECEIVE_MESSAGE:
-
-                        String from = intent.getStringExtra(Constants.BUNDLE_FROM_JID);
-                        String body = intent.getStringExtra(Constants.BUNDLE_MESSAGE_BODY);
-                        String msgId = intent.getStringExtra(Constants.BUNDLE_MESSAGE_PARAMS);
-                        String type = intent.getStringExtra(Constants.BUNDLE_MESSAGE_TYPE);
-                        String customText = intent.getStringExtra(Constants.CUSTOM_TEXT);
-                        String metaInfo = intent.getStringExtra(Constants.META_TEXT);
-                        String senderJid = intent.hasExtra(Constants.BUNDLE_MESSAGE_SENDER_JID) ? intent.getStringExtra(Constants.BUNDLE_MESSAGE_SENDER_JID) : "";
-                        String time = intent.hasExtra(Constants.time) ? intent.getStringExtra(Constants.time) : Constants.ZERO;
-                        String chatStateType = intent.hasExtra(Constants.CHATSTATE_TYPE) ? intent.getStringExtra(Constants.CHATSTATE_TYPE) : Constants.EMPTY;
-                        String delayTime = intent.hasExtra(Constants.DELAY_TIME) ? intent.getStringExtra(Constants.DELAY_TIME) : Constants.ZERO;
-
-                        Map<String, Object> build = new HashMap<>();
-                        build.put(Constants.TYPE, metaInfo);
-                        build.put(Constants.ID, msgId);
-                        build.put(Constants.FROM, from);
-                        build.put(Constants.BODY, body);
-                        build.put(Constants.MSG_TYPE, type);
-                        build.put(Constants.SENDER_JID, senderJid);
-                        build.put(Constants.CUSTOM_TEXT, customText);
-                        build.put(Constants.time, time);
-                        build.put(Constants.CHATSTATE_TYPE, chatStateType);
-                        build.put(Constants.DELAY_TIME, delayTime);
-
-                        Utils.addLogInStorage("Action: sentMessageToFlutter, Content: " + build.toString());
-                        Log.d("TAG", " RECEIVE_MESSAGE-->> " + build.toString());
-
-                        events.success(build);
-
-                        break;
-
-                    // Handle the sending message events.
-                    case Constants.OUTGOING_MESSAGE:
-
-                        String to = intent.getStringExtra(Constants.BUNDLE_TO_JID);
-                        String bodyTo = intent.getStringExtra(Constants.BUNDLE_MESSAGE_BODY);
-                        String idOutgoing = intent.getStringExtra(Constants.BUNDLE_MESSAGE_PARAMS);
-                        String typeTo = intent.getStringExtra(Constants.BUNDLE_MESSAGE_TYPE);
-
-                        Map<String, Object> buildTo = new HashMap<>();
-                        buildTo.put(Constants.TYPE, Constants.OUTGOING);
-                        buildTo.put(Constants.ID, idOutgoing);
-                        buildTo.put(Constants.TO, to);
-                        buildTo.put(Constants.BODY, bodyTo);
-                        buildTo.put(Constants.MSG_TYPE, typeTo);
-
-                        events.success(buildTo);
-
-                        break;
-
-                    // Handle the auth status events.
-
-                    case Constants.PRESENCE_MESSAGE:
-
-                        String jid = intent.getStringExtra(Constants.BUNDLE_FROM_JID);
-                        String presenceType = intent.getStringExtra(Constants.BUNDLE_PRESENCE_TYPE);
-                        String presenceMode = intent.getStringExtra(Constants.BUNDLE_PRESENCE_MODE);
-
-                        Map<String, Object> presenceBuild = new HashMap<>();
-                        presenceBuild.put(Constants.TYPE, Constants.PRESENCE);
-                        presenceBuild.put(Constants.FROM, jid);
-                        presenceBuild.put(Constants.PRESENCE_TYPE, presenceType);
-                        presenceBuild.put(Constants.PRESENCE_MODE, presenceMode);
-
-                        Utils.printLog("presenceBuild: " + presenceBuild);
-
-                        events.success(presenceBuild);
-                        break;
-
-                }
+                case Constants.PRESENCE_MESSAGE:
+                    build.put(Constants.TYPE, Constants.PRESENCE);
+                    build.put(Constants.FROM, intent.getStringExtra(Constants.BUNDLE_FROM_JID));
+                    build.put(Constants.PRESENCE_TYPE, intent.getStringExtra(Constants.BUNDLE_PRESENCE_TYPE));
+                    build.put(Constants.PRESENCE_MODE, intent.getStringExtra(Constants.BUNDLE_PRESENCE_MODE));
+                    Utils.printLog("presenceBuild: " + build);
+                    events.success(build);
+                    break;
             }
         };
     }
 
-    // Sending a message to one-one chat.
-    public static void sendMessage(String body, String toUser, String msgId, String method, String time) {
+    private BroadcastReceiver createSimpleReceiver(final EventChannel.EventSink events, String actionKey) {
+        return intent -> {
+            if (intent == null || events == null) return;
+            if (!actionKey.equals(intent.getAction())) return;
 
-        if (FlutterXmppConnectionService.getState().equals(ConnectionState.AUTHENTICATED)) {
-
-            if (method.equals(Constants.SEND_GROUP_MESSAGE)) {
-                Intent intent = new Intent(Constants.GROUP_SEND_MESSAGE);
-                intent.putExtra(Constants.BUNDLE_MESSAGE_BODY, body);
-                intent.putExtra(Constants.BUNDLE_TO, toUser);
-                intent.putExtra(Constants.BUNDLE_MESSAGE_PARAMS, msgId);
-                intent.putExtra(Constants.BUNDLE_MESSAGE_SENDER_TIME, time);
-
-                activity.sendBroadcast(intent);
-            } else {
-                Intent intent = new Intent(Constants.X_SEND_MESSAGE);
-                intent.putExtra(Constants.BUNDLE_MESSAGE_BODY, body);
-                intent.putExtra(Constants.BUNDLE_TO, toUser);
-                intent.putExtra(Constants.BUNDLE_MESSAGE_PARAMS, msgId);
-                intent.putExtra(Constants.BUNDLE_MESSAGE_SENDER_TIME, time);
-
-                activity.sendBroadcast(intent);
+            Map<String, Object> build = new HashMap<>();
+            switch (actionKey) {
+                case Constants.SUCCESS_MESSAGE:
+                    build.put(Constants.TYPE, intent.getStringExtra(Constants.BUNDLE_SUCCESS_TYPE));
+                    build.put(Constants.FROM, intent.getStringExtra(Constants.FROM));
+                    break;
+                case Constants.ERROR_MESSAGE:
+                    build.put(Constants.FROM, intent.getStringExtra(Constants.FROM));
+                    build.put(Constants.EXCEPTION, intent.getStringExtra(Constants.BUNDLE_EXCEPTION));
+                    build.put(Constants.TYPE, intent.getStringExtra(Constants.BUNDLE_ERROR_TYPE));
+                    break;
+                case Constants.CONNECTION_STATE_MESSAGE:
+                    build.put(Constants.TYPE, intent.getStringExtra(Constants.BUNDLE_CONNECTION_TYPE));
+                    build.put(Constants.ERROR, intent.getStringExtra(Constants.BUNDLE_CONNECTION_ERROR));
+                    break;
             }
-        }
-    }
-
-    public static void sendCustomMessage(String body, String toUser, String msgId, String customText, String time) {
-        FlutterXmppConnection.sendCustomMessage(body, toUser, msgId, customText, true, time);
-    }
-
-    public static void sendCustomGroupMessage(String body, String toUser, String msgId, String customText, String time) {
-        FlutterXmppConnection.sendCustomMessage(body, toUser, msgId, customText, false, time);
-    }
-
-    private static BroadcastReceiver getSuccessBroadCast(final EventChannel.EventSink events) {
-        return new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                String action = intent.getAction();
-                switch (action) {
-
-                    case Constants.SUCCESS_MESSAGE:
-
-                        String successType = intent.getStringExtra(Constants.BUNDLE_SUCCESS_TYPE);
-                        String from = intent.getStringExtra(Constants.FROM);
-
-                        Map<String, Object> successBuild = new HashMap<>();
-                        successBuild.put(Constants.TYPE, successType);
-                        successBuild.put(Constants.FROM, from);
-
-                        Utils.addLogInStorage("Action: sentSuccessMessageToFlutter, Content: " + successBuild.toString());
-
-                        events.success(successBuild);
-                        break;
-
-                }
-            }
+            Utils.addLogInStorage("Action: broadcastToFlutter, Content: " + build);
+            events.success(build);
         };
     }
 
-    private static BroadcastReceiver getErrorBroadCast(final EventChannel.EventSink errorEvents) {
-        return new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                String action = intent.getAction();
-                switch (action) {
+    // ---------- Lifecycle Methods ----------
 
-                    case Constants.ERROR_MESSAGE:
+    @Override
+    public void onAttachedToEngine(@NonNull FlutterPlugin.FlutterPluginBinding binding) {
+        applicationContext = binding.getApplicationContext();
+        methodChannel = new MethodChannel(binding.getBinaryMessenger(), Constants.CHANNEL);
+        methodChannel.setMethodCallHandler(this);
 
-                        String from = intent.getStringExtra(Constants.FROM);
-                        String error = intent.getStringExtra(Constants.BUNDLE_EXCEPTION);
-                        String errorType = intent.getStringExtra(Constants.BUNDLE_ERROR_TYPE);
+        eventChannel = new EventChannel(binding.getBinaryMessenger(), Constants.CHANNEL_STREAM);
+        eventChannel.setStreamHandler(this);
 
-                        Map<String, Object> errorBuild = new HashMap<>();
-                        errorBuild.put(Constants.FROM, from);
-                        errorBuild.put(Constants.EXCEPTION, error);
-                        errorBuild.put(Constants.TYPE, errorType);
-
-                        Utils.addLogInStorage("Action: sentErrorMessageToFlutter, Content: " + errorBuild.toString());
-
-                        errorEvents.success(errorBuild);
-                        break;
-
-                }
-            }
-        };
-    }
-
-    private static BroadcastReceiver getConnectionBroadCast(final EventChannel.EventSink connectionEvents) {
-        return new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                String action = intent.getAction();
-                switch (action) {
-
-                    case Constants.CONNECTION_STATE_MESSAGE:
-
-                        String connectionType = intent.getStringExtra(Constants.BUNDLE_CONNECTION_TYPE);
-                        String connectionError = intent.getStringExtra(Constants.BUNDLE_CONNECTION_ERROR);
-
-                        Map<String, Object> connectionStateBuild = new HashMap<>();
-                        connectionStateBuild.put(Constants.TYPE, connectionType);
-                        connectionStateBuild.put(Constants.ERROR, connectionError);
-
-                        Utils.addLogInStorage("Action: sentConnectionMessageToFlutter, Content: " + connectionStateBuild.toString());
-
-                        connectionEvents.success(connectionStateBuild);
-                        break;
-
-                }
-            }
-        };
+        successChannel = new EventChannel(binding.getBinaryMessenger(), Constants.CHANNEL_SUCCESS_EVENT_STREAM);
+        errorChannel = new EventChannel(binding.getBinaryMessenger(), Constants.CHANNEL_ERROR_EVENT_STREAM);
+        connectionChannel = new EventChannel(binding.getBinaryMessenger(), Constants.CHANNEL_CONNECTION_EVENT_STREAM);
     }
 
     @Override
-    public void onAttachedToEngine(@NonNull FlutterPluginBinding flutterPluginBinding) {
-        method_channel = new MethodChannel(flutterPluginBinding.getBinaryMessenger(), Constants.CHANNEL);
-        method_channel.setMethodCallHandler(this);
-        event_channel = new EventChannel(flutterPluginBinding.getBinaryMessenger(), Constants.CHANNEL_STREAM);
-        event_channel.setStreamHandler(this);
-
-        success_channel = new EventChannel(flutterPluginBinding.getBinaryMessenger(), Constants.CHANNEL_SUCCESS_EVENT_STREAM);
-        success_channel.setStreamHandler(new EventChannel.StreamHandler() {
-            @Override
-            public void onListen(Object args, EventChannel.EventSink events) {
-                if (successBroadcastReceiver == null) {
-                    Utils.printLog(" adding success listener: ");
-                    successBroadcastReceiver = getSuccessBroadCast(events);
-                    IntentFilter filter = new IntentFilter();
-                    filter.addAction(Constants.SUCCESS_MESSAGE);
-                    activity.registerReceiver(successBroadcastReceiver, filter, Context.RECEIVER_EXPORTED);
-                }
-            }
-
-            @Override
-            public void onCancel(Object o) {
-                if (successBroadcastReceiver != null) {
-                    Utils.printLog(" cancelling success listener: ");
-                    activity.unregisterReceiver(successBroadcastReceiver);
-                    successBroadcastReceiver = null;
-                }
-            }
-        });
-
-        error_channel = new EventChannel(flutterPluginBinding.getBinaryMessenger(), Constants.CHANNEL_ERROR_EVENT_STREAM);
-        error_channel.setStreamHandler(new EventChannel.StreamHandler() {
-            @Override
-            public void onListen(Object args, EventChannel.EventSink errorEvents) {
-                if (errorBroadcastReceiver == null) {
-                    Utils.printLog(" adding error listener: ");
-                    errorBroadcastReceiver = getErrorBroadCast(errorEvents);
-                    IntentFilter filter = new IntentFilter();
-                    filter.addAction(Constants.ERROR_MESSAGE);
-                    activity.registerReceiver(errorBroadcastReceiver, filter, Context.RECEIVER_EXPORTED);
-                }
-            }
-
-            @Override
-            public void onCancel(Object o) {
-                if (errorBroadcastReceiver != null) {
-                    Utils.printLog(" cancelling error listener: ");
-                    activity.unregisterReceiver(errorBroadcastReceiver);
-                    errorBroadcastReceiver = null;
-                }
-            }
-        });
-
-        connection_channel = new EventChannel(flutterPluginBinding.getBinaryMessenger(), Constants.CHANNEL_CONNECTION_EVENT_STREAM);
-        connection_channel.setStreamHandler(new EventChannel.StreamHandler() {
-            @Override
-            public void onListen(Object args, EventChannel.EventSink connectionEvents) {
-                if (connectionBroadcastReceiver == null) {
-                    Utils.printLog(" adding connection listener: ");
-                    connectionBroadcastReceiver = getConnectionBroadCast(connectionEvents);
-                    IntentFilter filter = new IntentFilter();
-                    filter.addAction(Constants.CONNECTION_STATE_MESSAGE);
-                    activity.registerReceiver(connectionBroadcastReceiver, filter, Context.RECEIVER_EXPORTED);
-                }
-            }
-
-            @Override
-            public void onCancel(Object o) {
-                if (connectionBroadcastReceiver != null) {
-                    Utils.printLog(" cancelling connection listener: ");
-                    activity.unregisterReceiver(connectionBroadcastReceiver);
-                    connectionBroadcastReceiver = null;
-                }
-            }
-        });
-
-    }
-
-    @Override
-    public void onDetachedFromActivityForConfigChanges() {
-        // The Activity your plugin was associated with has been
-        // destroyed due to config changes. It will be right back
-        // but your plugin must clean up any references to that
-        // Activity and associated resources.
-    }
-
-    @Override
-    public void onReattachedToActivityForConfigChanges(ActivityPluginBinding binding) {
-        // Your plugin is now associated with a new Activity instance
-        // after config changes took place. You may now re-establish
-        // a reference to the Activity and associated resources.
-    }
-
-    @Override
-    public void onDetachedFromActivity() {
-        // Your plugin is no longer associated with an Activity.
-        // You must clean up all resources and references. Your
-        // plugin may, or may not ever be associated with an Activity
-        // again.
+    public void onDetachedFromEngine(@NonNull FlutterPlugin.FlutterPluginBinding binding) {
+        methodChannel.setMethodCallHandler(null);
+        unregisterAllReceivers();
+        Utils.printLog("FlutterXmppPlugin detached from engine");
     }
 
     @Override
     public void onAttachedToActivity(ActivityPluginBinding binding) {
-        // Your plugin is now associated with an Android Activity.
-        //
-        // If this method is invoked, it is always invoked after
-        // onAttachedToFlutterEngine().
-        //
-        // You can obtain an Activity reference with
-
-        activity = binding.getActivity();
-
-        //
-        // You can listen for Lifecycle changes with
-        // binding.getLifecycle()
-        //
-        // You can listen for Activity results, new Intents, user
-        // leave hints, and state saving callbacks by using the
-        // appropriate methods on the binding.
+        applicationContext = binding.getActivity().getApplicationContext();
     }
 
     @Override
-    public void onDetachedFromEngine(@NonNull FlutterPluginBinding binding) {
-        logout();
-        method_channel.setMethodCallHandler(null);
-        Utils.printLog(" onDetachedFromEngine: ");
+    public void onDetachedFromActivity() { }
+
+    @Override
+    public void onReattachedToActivityForConfigChanges(ActivityPluginBinding binding) {
+        applicationContext = binding.getActivity().getApplicationContext();
     }
 
     @Override
-    public void onResume(@NonNull LifecycleOwner owner)  {
-        Utils.printLog("onresume called");
-       // Create a single-threaded Executor
-    ExecutorService executor = Executors.newSingleThreadExecutor();
+    public void onDetachedFromActivityForConfigChanges() { }
 
-    // Run the reconnect operation in a background thread
-    executor.execute(new Runnable() {
-        @Override
-        public void run() {
+    @Override
+    public void onResume(@NonNull LifecycleOwner owner) {
+        executorService.execute(() -> {
             try {
                 FlutterXmppConnection.reconnect();
             } catch (Exception e) {
-                e.printStackTrace();
-                // Handle any exceptions related to the reconnect
+                Utils.printLog("Reconnect failed: " + e.getMessage());
             }
-        }
-    });
-
-    // Optional: Shut down the executor after the task is done
-    executor.shutdown();
-
-        checkAndReConnect();
+        });
+        checkAndReconnect();
     }
 
-    // stream
-    @Override
-    public void onListen(Object auth, EventChannel.EventSink eventSink) {
+    // ---------- StreamHandler ----------
 
-        if (mBroadcastReceiver == null) {
-            Utils.printLog(" adding listener: ");
-            mBroadcastReceiver = get_message(eventSink);
+    @Override
+    public void onListen(Object args, EventChannel.EventSink events) {
+        if (messageReceiver == null) {
+            messageReceiver = createMessageReceiver(events);
             IntentFilter filter = new IntentFilter();
             filter.addAction(Constants.RECEIVE_MESSAGE);
             filter.addAction(Constants.OUTGOING_MESSAGE);
             filter.addAction(Constants.PRESENCE_MESSAGE);
-            activity.registerReceiver(mBroadcastReceiver, filter, Context.RECEIVER_EXPORTED);
+            applicationContext.registerReceiver(messageReceiver, filter, Context.RECEIVER_EXPORTED);
         }
-
     }
 
     @Override
-    public void onCancel(Object o) {
-
-        if (mBroadcastReceiver != null) {
-            Utils.printLog(" cancelling listener: ");
-            activity.unregisterReceiver(mBroadcastReceiver);
-            mBroadcastReceiver = null;
+    public void onCancel(Object args) {
+        if (messageReceiver != null) {
+            applicationContext.unregisterReceiver(messageReceiver);
+            messageReceiver = null;
         }
-
     }
 
-    // Handles the call invocation from the flutter plugin
-    @Override
-    public void onMethodCall(MethodCall call, Result result) {
-
-        Utils.printLog(" onMethodCall call: " + call.method);
-        // Check if login method was called.
-
-        Utils.addLogInStorage("Action: methodReceiveFromFlutter, NativeMethod: " + call.method.toString() + " Content: " + call.arguments + "");
-
-        switch (call.method) {
-
-            case Constants.LOGIN:
-
-                if (!call.hasArgument(Constants.USER_JID) || !call.hasArgument(Constants.PASSWORD) || !call.hasArgument(Constants.HOST)) {
-                    result.error("MISSING", "Missing auth.", null);
-                }
-
-                jid_user = call.argument(Constants.USER_JID).toString();
-                password = call.argument(Constants.PASSWORD).toString();
-                host = call.argument(Constants.HOST).toString();
-                if (call.hasArgument(Constants.PORT)) {
-                    Constants.PORT_NUMBER = Integer.parseInt(call.argument(Constants.PORT).toString());
-                }
-
-                if (call.hasArgument(Constants.NAVIGATE_FILE_PATH)) {
-                    Utils.logFilePath = call.argument(Constants.NAVIGATE_FILE_PATH).toString();
-                }
-
-                if (call.hasArgument(Constants.AUTO_DELIVERY_RECEIPT)) {
-                    autoDeliveryReceipt = call.argument(Constants.AUTO_DELIVERY_RECEIPT);
-                }
-
-                if (call.hasArgument(Constants.REQUIRE_SSL_CONNECTION)) {
-                    requireSSLConnection = call.argument(Constants.REQUIRE_SSL_CONNECTION);
-                }
-
-                if (call.hasArgument(Constants.AUTOMATIC_RECONNECTION)) {
-                    automaticReconnection = call.argument(Constants.AUTOMATIC_RECONNECTION);
-                }
-
-                if (call.hasArgument(Constants.USER_STREAM_MANAGEMENT)) {
-                    useStreamManagement = call.argument(Constants.USER_STREAM_MANAGEMENT);
-                }
-
-                // Start authentication.
-                doLogin();
-
-                result.success(Constants.SUCCESS);
-                break;
-
-            case Constants.LOGOUT:
-                // Doing logout from xmpp.
-                logout();
-                result.success(Constants.SUCCESS);
-                break;
-
-            case Constants.SEND_MESSAGE:
-            case Constants.SEND_GROUP_MESSAGE:
-                // Handle sending message.
-                if (!call.hasArgument(Constants.TO_JID) || !call.hasArgument(Constants.BODY) || !call.hasArgument(Constants.ID)) {
-                    result.error("MISSING", "Missing argument to_jid / body / id chat.", null);
-                }
-
-                to_jid = call.argument(Constants.TO_JID);
-                body = call.argument(Constants.BODY);
-                id = call.argument(Constants.ID);
-                time = Constants.ZERO;
-
-                if (call.hasArgument(Constants.time)) {
-                    time = call.argument(Constants.time);
-                }
-
-                sendMessage(body, to_jid, id, call.method, time);
-
-                result.success(Constants.SUCCESS);
-                break;
-
-            case Constants.JOIN_MUC_GROUPS:
-
-                if (!call.hasArgument(Constants.ALL_GROUPS_IDS)) {
-                    result.error("MISSING", "Missing argument all_groups_ids.", null);
-                }
-                ArrayList<String> allGroupsIds = call.argument(Constants.ALL_GROUPS_IDS);
-
-                String response = FlutterXmppConnection.joinAllGroups(allGroupsIds);
-                result.success(response);
-                break;
-
-            case Constants.JOIN_MUC_GROUP:
-
-                boolean isJoined = false;
-                if (!call.hasArgument(Constants.GROUP_ID)) {
-                    result.error("MISSING", "Missing argument group_id.", null);
-                }
-                String group_id = call.argument(Constants.GROUP_ID);
-
-                if (!group_id.isEmpty()) {
-                    isJoined = FlutterXmppConnection.joinGroupWithResponse(group_id);
-                }
-                result.success(isJoined);
-                break;
-
-            case Constants.CREATE_MUC:
-
-                String group_name = call.argument(Constants.GROUP_NAME);
-                String persistent = call.argument(Constants.PERSISTENT);
-
-                boolean responses = FlutterXmppConnection.createMUC(group_name, persistent);
-                result.success(responses);
-                break;
-
-            case Constants.CUSTOM_MESSAGE:
-                // Handle sending message.
-                if (!call.hasArgument(Constants.TO_JID) || !call.hasArgument(Constants.BODY) || !call.hasArgument(Constants.ID)) {
-                    result.error("MISSING", "Missing argument to_jid / body / id chat.", null);
-                }
-
-                to_jid = call.argument(Constants.TO_JID);
-                body = call.argument(Constants.BODY);
-                id = call.argument(Constants.ID);
-                customString = call.argument(Constants.CUSTOM_TEXT);
-                time = Constants.ZERO;
-
-                if (call.hasArgument(Constants.time)) {
-                    time = call.argument(Constants.time);
-                }
-
-                sendCustomMessage(body, to_jid, id, customString, time);
-
-                result.success(Constants.SUCCESS);
-                break;
-
-            case Constants.CUSTOM_GROUP_MESSAGE:
-                // Handle sending message.
-                if (!call.hasArgument(Constants.TO_JID) || !call.hasArgument(Constants.BODY) || !call.hasArgument(Constants.ID)) {
-                    result.error("MISSING", "Missing argument to_jid / body / id chat.", null);
-                }
-
-                to_jid = call.argument(Constants.TO_JID);
-                body = call.argument(Constants.BODY);
-                id = call.argument(Constants.ID);
-                customString = call.argument(Constants.CUSTOM_TEXT);
-                time = Constants.ZERO;
-
-                if (call.hasArgument(Constants.time)) {
-                    time = call.argument(Constants.time);
-                }
-
-                sendCustomGroupMessage(body, to_jid, id, customString, time);
-
-                result.success(Constants.SUCCESS);
-                break;
-
-            case Constants.SEND_DELIVERY_ACK:
-
-                String toJid = call.argument(Constants.TO_JID_1);
-                String msgId = call.argument(Constants.MESSAGE_ID);
-                String receiptId = call.argument(Constants.RECEIPT_ID);
-
-                FlutterXmppConnection.send_delivery_receipt(toJid, msgId, receiptId);
-
-                result.success(Constants.SUCCESS);
-                break;
-
-            case Constants.ADD_MEMBERS_IN_GROUP:
-
-                groupName = call.argument(Constants.GROUP_NAME);
-                membersJid = call.argument(Constants.MEMBERS_JID);
-
-                FlutterXmppConnection.manageAddMembersInGroup(GroupRole.MEMBER, groupName, membersJid);
-
-                result.success(Constants.SUCCESS);
-                break;
-
-            case Constants.ADD_ADMINS_IN_GROUP:
-
-                groupName = call.argument(Constants.GROUP_NAME);
-                membersJid = call.argument(Constants.MEMBERS_JID);
-
-                FlutterXmppConnection.manageAddMembersInGroup(GroupRole.ADMIN, groupName, membersJid);
-
-                result.success(Constants.SUCCESS);
-                break;
-
-            case Constants.REMOVE_MEMBERS_FROM_GROUP:
-
-                groupName = call.argument(Constants.GROUP_NAME);
-                membersJid = call.argument(Constants.MEMBERS_JID);
-
-                FlutterXmppConnection.manageRemoveFromGroup(GroupRole.MEMBER, groupName, membersJid);
-
-                result.success(Constants.SUCCESS);
-                break;
-
-            case Constants.REMOVE_ADMINS_FROM_GROUP:
-
-                groupName = call.argument(Constants.GROUP_NAME);
-                membersJid = call.argument(Constants.MEMBERS_JID);
-
-                FlutterXmppConnection.manageRemoveFromGroup(GroupRole.ADMIN, groupName, membersJid);
-
-                result.success(Constants.SUCCESS);
-                break;
-
-            case Constants.ADD_OWNERS_IN_GROUP:
-
-                groupName = call.argument(Constants.GROUP_NAME);
-                membersJid = call.argument(Constants.MEMBERS_JID);
-
-                FlutterXmppConnection.manageAddMembersInGroup(GroupRole.OWNER, groupName, membersJid);
-
-                result.success(Constants.SUCCESS);
-                break;
-
-            case Constants.REMOVE_OWNERS_FROM_GROUP:
-
-                groupName = call.argument(Constants.GROUP_NAME);
-                membersJid = call.argument(Constants.MEMBERS_JID);
-
-                FlutterXmppConnection.manageRemoveFromGroup(GroupRole.OWNER, groupName, membersJid);
-
-                result.success(Constants.SUCCESS);
-                break;
-
-            case Constants.GET_OWNERS:
-
-                groupName = call.argument(Constants.GROUP_NAME);
-                jidList = FlutterXmppConnection.getMembersOrAdminsOrOwners(GroupRole.OWNER, groupName);
-                result.success(jidList);
-                break;
-
-            case Constants.GET_ADMINS:
-
-                groupName = call.argument(Constants.GROUP_NAME);
-                jidList = FlutterXmppConnection.getMembersOrAdminsOrOwners(GroupRole.ADMIN, groupName);
-                result.success(jidList);
-                break;
-
-            case Constants.GET_MAM:
-
-                String userJid = call.argument(Constants.userJid);
-                String requestBefore = call.argument(Constants.requestBefore);
-                String requestSince = call.argument(Constants.requestSince);
-                String limit = call.argument(Constants.limit);
-                Utils.printLog("userJId " + userJid + " Before : " + requestBefore + " since " + requestSince + " limit " + limit);
-                MAMManager.requestMAM(userJid, requestBefore, requestSince, limit);
-                result.success("SUCCESS");
-
-                break;
-
-            case Constants.CHANGE_TYPING_STATUS:
-
-                String typingJid = call.argument(Constants.userJid);
-                String typingStatus = call.argument(Constants.typingStatus);
-                Utils.printLog("userJId " + typingJid + " Typing Status : " + typingStatus);
-                FlutterXmppConnection.updateChatState(typingJid, typingStatus);
-                result.success("SUCCESS");
-                break;
-
-            case Constants.CHANGE_PRESENCE_TYPE:
-
-                String presenceType = call.argument(Constants.PRESENCE_TYPE);
-                String presenceMode = call.argument(Constants.PRESENCE_MODE);
-                Utils.printLog("presenceType : " + presenceType + " , Presence Mode : " + presenceMode);
-                FlutterXmppConnection.updatePresence(presenceType, presenceMode);
-                result.success("SUCCESS");
-                break;
-
-            case Constants.GET_CONNECTION_STATUS:
-
-                ConnectionState connectionStatus = FlutterXmppConnectionService.getState();
-                result.success(connectionStatus.toString());
-                break;
-
-            case Constants.GET_MEMBERS:
-
-                groupName = call.argument(Constants.GROUP_NAME);
-                jidList = FlutterXmppConnection.getMembersOrAdminsOrOwners(GroupRole.MEMBER, groupName);
-                result.success(jidList);
-                break;
-
-            case Constants.CURRENT_STATE:
-
-                String state = Constants.STATE_UNKNOWN;
-                switch (FlutterXmppConnectionService.getState()) {
-                    case CONNECTED:
-                        state = Constants.STATE_CONNECTED;
-                        break;
-                    case AUTHENTICATED:
-                        state = Constants.STATE_AUTHENTICATED;
-                        break;
-                    case CONNECTING:
-                        state = Constants.STATE_CONNECTING;
-                        break;
-                    case DISCONNECTING:
-                        state = Constants.STATE_DISCONNECTING;
-                        break;
-                    case DISCONNECTED:
-                        state = Constants.STATE_DISCONNECTED;
-                        break;
-                }
-                result.success(state);
-                break;
-
-            case Constants.GET_ONLINE_MEMBER_COUNT:
-
-                groupName = call.argument(Constants.GROUP_NAME);
-                int occupantsSize = FlutterXmppConnection.getOnlineMemberCount(groupName);
-                result.success(occupantsSize);
-                break;
-
-            case Constants.GET_LAST_SEEN:
-
-                userJid = call.argument(Constants.USER_JID);
-                long userLastActivity = FlutterXmppConnection.getLastSeen(userJid);
-                result.success(userLastActivity + "");
-                break;
-
-
-            case Constants.GET_MY_ROSTERS:
-
-                List<String> getMyRosters = FlutterXmppConnection.getMyRosters();
-                result.success(getMyRosters);
-                break;
-
-            case Constants.CREATE_ROSTER:
-
-                userJid = call.argument(Constants.USER_JID);
-                FlutterXmppConnection.createRosterEntry(userJid);
-                result.success(Constants.SUCCESS);
-                break;
-
-            default:
-                result.notImplemented();
-                break;
-        }
-
+    // ---------- Utility Methods ----------
+
+    private void unregisterAllReceivers() {
+        try {
+            if (messageReceiver != null) applicationContext.unregisterReceiver(messageReceiver);
+            if (successReceiver != null) applicationContext.unregisterReceiver(successReceiver);
+            if (errorReceiver != null) applicationContext.unregisterReceiver(errorReceiver);
+            if (connectionReceiver != null) applicationContext.unregisterReceiver(connectionReceiver);
+        } catch (Exception ignored) {}
+        messageReceiver = successReceiver = errorReceiver = connectionReceiver = null;
     }
 
-    // login
-    private void doLogin() {
-        // Check if the user is already connected or not ? if not then start login process.
-        final ConnectionState connState = FlutterXmppConnectionService.getState();
-        if (connState.equals(ConnectionState.DISCONNECTED) || connState.equals(ConnectionState.FAILED)) {
-            Intent i = new Intent(activity, FlutterXmppConnectionService.class);
-            i.putExtra(Constants.JID_USER, jid_user);
+    private void checkAndReconnect() {
+        if (jidUser == null || password == null || jidUser.isEmpty() || password.isEmpty()) return;
+
+        ConnectionState state = FlutterXmppConnectionService.getState();
+        if (state == ConnectionState.DISCONNECTED || state == ConnectionState.FAILED) {
+            Utils.broadcastConnectionMessageToFlutter(applicationContext, ConnectionState.CONNECTING, "Connecting to chat server");
+            Intent i = new Intent(applicationContext, FlutterXmppConnectionService.class);
+            i.putExtra(Constants.JID_USER, jidUser);
             i.putExtra(Constants.PASSWORD, password);
             i.putExtra(Constants.HOST, host);
             i.putExtra(Constants.PORT, Constants.PORT_NUMBER);
             i.putExtra(Constants.AUTO_DELIVERY_RECEIPT, autoDeliveryReceipt);
-            i.putExtra(Constants.REQUIRE_SSL_CONNECTION, requireSSLConnection);
+            i.putExtra(Constants.REQUIRE_SSL_CONNECTION, requireSSL);
             i.putExtra(Constants.USER_STREAM_MANAGEMENT, useStreamManagement);
             i.putExtra(Constants.AUTOMATIC_RECONNECTION, automaticReconnection);
-            activity.startService(i);
-        }
-    }
-
-    // login
-    private void checkAndReConnect() {
-         Utils.printLog("checkAndReConnect called");
-         Utils.printLog(FlutterXmppConnectionService.getState().toString());
-        // Check if the user is already connected or not ? if not then start login process.
-        if ( (FlutterXmppConnectionService.getState().equals(ConnectionState.DISCONNECTED)) || FlutterXmppConnectionService.getState().equals(ConnectionState.FAILED) ) {
-            Utils.printLog("checkAndReConnect trying");
-            Utils.printLog(jid_user);
-            Utils.printLog(password);
-            if(jid_user == null || password == null || jid_user == "" || password == ""){
-                return;
-            }
-            stopRunningService();
-            Utils.printLog("checkAndReConnect trying login");
-
-
-            Utils.broadcastConnectionMessageToFlutter(activity,ConnectionState.CONNECTING, "Connecting to chat server");
-            Utils.printLog("checkAndReConnect() : Connecting to chat server ");
-
-
-            Intent i = new Intent(activity, FlutterXmppConnectionService.class);
-            i.putExtra(Constants.JID_USER, jid_user);
-            i.putExtra(Constants.PASSWORD, password);
-            i.putExtra(Constants.HOST, host);
-            i.putExtra(Constants.PORT, Constants.PORT_NUMBER);
-            i.putExtra(Constants.AUTO_DELIVERY_RECEIPT, autoDeliveryReceipt);
-            i.putExtra(Constants.REQUIRE_SSL_CONNECTION, requireSSLConnection);
-            i.putExtra(Constants.USER_STREAM_MANAGEMENT, useStreamManagement);
-            i.putExtra(Constants.AUTOMATIC_RECONNECTION, automaticReconnection);
-            activity.startService(i);
-        }
-    }
-
-    private void stopRunningService(){
-        Intent i1 = new Intent(activity, FlutterXmppConnectionService.class);
-        activity.stopService(i1);
-    }
-
-    private void logout() {
-        // Check if user is connected to xmpp ? if yes then break connection.
-        if (FlutterXmppConnectionService.getState().equals(ConnectionState.AUTHENTICATED)) {
-            Intent i1 = new Intent(activity, FlutterXmppConnectionService.class);
-            activity.stopService(i1);
+            applicationContext.startService(i);
         }
     }
 

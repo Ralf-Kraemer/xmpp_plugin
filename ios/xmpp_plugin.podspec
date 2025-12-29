@@ -1,24 +1,36 @@
-#
-# To learn more about a Podspec see http://guides.cocoapods.org/syntax/podspec.html.
-# Run `pod lib lint xmpp_plugin.podspec` to validate before publishing.
-#
 Pod::Spec.new do |s|
   s.name             = 'xmpp_plugin'
   s.version          = '2.2.13'
-  s.summary          = 'Xmpp plugin which helps to connect with xmpp via native channels and native libs like smack android and ios via xmppframework'
+  s.summary          = 'Flutter plugin for XMPP using native libraries on Android and iOS.'
   s.description      = <<-DESC
-A new Flutter project.
-                       DESC
-  s.homepage         = 'https://github.com/vavadiyahiren/xmpp_plugin'
+    A Flutter plugin that enables XMPP communication using native libraries.
+    Android uses Smack, iOS uses XMPPFramework (Swift).
+  DESC
+  s.homepage         = 'https://github.com/Ralf-Kraemer/xmpp_plugin'
   s.license          = { :file => '../LICENSE' }
-  s.author           = { 'Your Company' => 'hiren@xrstudio.in' }
+  s.author           = { 'Your Company' => 'hello@ralfkraemer.eu' }
   s.source           = { :path => '.' }
-  s.source_files = 'Classes/**/*'
+
+  # Source files for iOS plugin
+  s.source_files     = 'Classes/**/*.{h,m,swift}'
+  s.public_header_files = 'Classes/**/*.h'
+
+  # Dependencies
   s.dependency 'Flutter'
   s.dependency 'XMPPFramework/Swift'
-  s.platform = :ios, '11.0'
 
-  # Flutter.framework does not contain a i386 slice.
-  s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386' }
-  s.swift_version = '5.0'
+  # iOS platform and Swift version
+  s.platform         = :ios, '11.0'
+  s.swift_version    = '5.0'
+
+  # Module and simulator configuration
+  s.pod_target_xcconfig = {
+    'DEFINES_MODULE' => 'YES',
+    'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386'
+  }
+
+  # Allow modular headers for Swift integration
+  s.prepare_command = <<-CMD
+    echo "Preparing xmpp_plugin for Swift and Flutter integration"
+  CMD
 end

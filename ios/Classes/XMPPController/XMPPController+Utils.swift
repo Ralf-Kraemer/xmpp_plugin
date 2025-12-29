@@ -2,61 +2,80 @@
 //  XMPPController+Utils.swift
 //  xmpp_plugin
 //
-//  Created by xR Studio Mac on 29/06/22.
+//  Updated to correctly handle MUCSUB messages for iOS,
+//  aligned with Dart expectations.
 //
 
 import Foundation
 import XMPPFramework
 
-func manage_MucSubMesage(_ message : XMPPMessage) -> XMPPMessage? {
-    var newMessage: XMPPMessage?
-    
-    let arrMI = message.elements(forName: "event")
-    if (arrMI.first != nil) {
-        printLog("\(#function) | Mucsub Message")
-        
-        let mess1 =  message.element(forName: "event")?.element(forName: "items")?.element(forName: "item")?.element(forName: "message");
-        printLog("\(#function) | didReceive MucSubMessage: \(String(describing: mess1))")
-        
-        guard let objMess = getXMPPMesage(usingXMPPMessageString: mess1?.xmlString ?? "") else { return newMessage }
-        newMessage = objMess
-        printLog("\(#function) | Getting Mucsub XMPPMessage: \(String(describing: newMessage))")
-    }
-    return newMessage
-}
+/// Manage MUCSUB messages — returns an XMPPMessage if found
+func manage_MucSubMesage(_ message: XMPPMessage) -> XMPPMessage? {
 
-func getXMPPMesage(usingXMPPMessageString mess : String) -> XMPPMessage? {
-    /*
+    // Only match if the "event" element URI is MUCSUB
+    let events = message.elements(
+        forName: "event",
+        xmlns: "http://jabber.org/protocol/pubsub#event"
+    )
 
-    printLog("\(#function) | Muc sub Message")
-    let mess1 =  message.element(forName: "event")?.element(forName: "items")?.element(forName: "item")?.element(forName: "message");
-
-
-    printLog("\(#function) | didReceive message: \(mess1)")
-    
-    var elem: XMPPElement?
-    
-    do {
-        try elem = XMPPElement.init(xmlString: mess1?.xmlString ??  "")
-        newMessage = mess1?.forwardedMessage
-    } catch {
-        printLog("Couldn't parse the message ")
-    }
-    */
-    
-    printLog("\(#function) | Getting XMPPMessage String: \(mess)")
-    if mess.trim().isEmpty {
+    guard events.first != nil else {
+        // Not a mucsub event
         return nil
     }
-    
-    var xmppMess : XMPPMessage?
+
+    printLog("\(#function) | MUCSub event detected")
+
+    // Extract the <message/> child from the pubsub event
+    guard
+        let itemMessageXML = message
+            .element(forName: "event", xmlns: "http://jabber.org/protocol/pubsub#event")?
+            .element(forName: "items")?
+            .element(forName: "item")?
+            .element(forName: "message")?
+            .xmlString
+    else {
+        printLog("\(#function) | No nested message found")
+        return nil
+    }
+
+    // Parse that XML into an XMPPMessage
+    guard let xmppMsg = getXMPPMesage(usingXMPPMessageString: itemMessageXML) else {
+        printLog("\(#function) | Failed to parse inner message")
+        return nil
+    }
+
+    // 🛠 Normalize 'from' to bare JID (no resource)
+    if let fromJIDObj = xmppMsg.from {
+        // XMPPFramework uses 'bareJID' property for resource-less JID
+        let bare: String = fromJIDObj.bare
+        xmppMsg.from = XMPPJID(string: bare)
+    }
+
+    // 🛠 Ensure timestamp exists — Dart expects a non-empty time
+    let existingTime = xmppMsg.getTimeElementInfo().trim()
+    if existingTime.isEmpty {
+        let ts = "\(getTimeStamp())"
+        let delay = DDXMLElement(name: "delay", stringValue: ts)
+        xmppMsg.addChild(delay)
+    }
+
+    return xmppMsg
+}
+
+/// Parse an XMPP message from raw XML safely
+func getXMPPMesage(usingXMPPMessageString xml: String) -> XMPPMessage? {
+
+    let trimmed = xml.trim()
+    guard !trimmed.isEmpty else {
+        printLog("\(#function) | Empty XML message string")
+        return nil
+    }
+
     do {
-        try xmppMess = XMPPMessage.init(xmlString: mess.trim())
-        printLog("\(#function) | Getting XMPPMessage Message: \(xmppMess?.body ?? "--Nil--")")
+        let parsedMessage = try XMPPMessage(xmlString: trimmed)
+        return parsedMessage
+    } catch let error {
+        printLog("\(#function) | XML parse failed: \(error.localizedDescription)")
+        return nil
     }
-    catch let error {
-        printLog("\(#function) | Couldn't parse the message | Getting error: \(error.localizedDescription)")
-    }
-    return xmppMess
-    
 }

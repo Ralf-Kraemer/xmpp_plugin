@@ -9,16 +9,17 @@ import org.xrstudio.xmpp.flutter_xmpp.Utils.Utils;
 
 public class MessageListener implements StanzaListener {
 
-    private static Context mApplicationContext;
+    private final Context applicationContext;
 
     public MessageListener(Context context) {
-        mApplicationContext = context;
+        // Use application context to avoid leaking activity context
+        this.applicationContext = context != null ? context.getApplicationContext() : null;
     }
 
     @Override
-    public void processStanza(Stanza packet) {
-
-        Message message = (Message) packet;
-        Utils.broadcastMessageToFlutter(mApplicationContext, message);
+    public void processStanza(Stanza stanza) {
+        if (stanza instanceof Message && applicationContext != null) {
+            Utils.broadcastMessageToFlutter(applicationContext, (Message) stanza);
+        }
     }
 }

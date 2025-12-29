@@ -5,7 +5,6 @@ import android.content.Intent;
 import android.os.Environment;
 import android.util.Log;
 
-import org.jivesoftware.smack.packet.ExtensionElement;
 import org.jivesoftware.smack.packet.Message;
 import org.jivesoftware.smack.packet.StandardExtensionElement;
 import org.jivesoftware.smack.util.PacketParserUtils;
@@ -38,31 +37,28 @@ import java.util.Locale;
 public class Utils {
 
     public static String logFilePath = "";
-    static String logFileName = "xmpp_logs.txt";
+    private static final String logFileName = "xmpp_logs.txt";
 
-    public static String getValidJid(String Jid) {
-
-        if (Jid != null && Jid.contains(Constants.SYMBOL_COMPARE_JID)) {
-            Jid = Jid.split(Constants.SYMBOL_COMPARE_JID)[0];
+    public static String getValidJid(String jid) {
+        if (jid != null && jid.contains(Constants.SYMBOL_COMPARE_JID)) {
+            jid = jid.split(Constants.SYMBOL_COMPARE_JID)[0];
         }
-        return Jid != null ? Jid : "";
+        return jid != null ? jid : "";
     }
 
-    public static Jid getFullJid(String Jid) {
+    public static Jid getFullJid(String jid) {
+        if (jid == null || jid.isEmpty()) return null;
 
-        Jid fullJid = null;
+        if (!jid.contains(Constants.SYMBOL_COMPARE_JID) && FlutterXmppConnection.mHost != null) {
+            jid = jid + "@" + FlutterXmppConnection.mHost;
+        }
 
         try {
-
-            if (Jid != null && !Jid.contains(Constants.SYMBOL_COMPARE_JID)) {
-                Jid = Jid + "@" + FlutterXmppConnection.mHost;
-            }
-
-            fullJid = JidCreate.from(Jid);
+            return JidCreate.from(jid);
         } catch (XmppStringprepException e) {
             e.printStackTrace();
+            return null;
         }
-        return fullJid;
     }
 
     public static long getLongDate() {
@@ -74,83 +70,60 @@ public class Utils {
     }
 
     public static String getRoomIdWithDomainName(String groupName, String host) {
-        String roomId = groupName;
         if (!groupName.contains(Constants.CONFERENCE)) {
-            roomId = groupName + Constants.SYMBOL_COMPARE_JID + Constants.CONFERENCE + Constants.DOT + host;
+            return groupName + Constants.SYMBOL_COMPARE_JID + Constants.CONFERENCE + Constants.DOT + host;
         }
-        return roomId;
+        return groupName;
     }
 
     public static void addLogInStorage(String text) {
-        if (logFilePath == null || logFilePath.isEmpty()) {
-            return;
-        }
-        text = "Time: " + getTimeMillisecondFormat() + " " + text;
-        boolean fileExists = true;
-//        checkDirectoryExist(logFilePath);
-        try {
-            File logFile = new File(logFilePath);
+        if (logFilePath == null || logFilePath.isEmpty()) return;
 
-            if (!logFile.exists()) {
-                try {
-                    fileExists = logFile.createNewFile();
-                } catch (IOException e) {
-                    fileExists = false;
-                    e.printStackTrace();
-                }
+        text = "Time: " + getTimeMillisecondFormat() + " " + text;
+        File logFile = new File(logFilePath);
+
+        if (!logFile.exists()) {
+            try {
+                logFile.createNewFile();
+            } catch (IOException e) {
+                e.printStackTrace();
+                return;
             }
-            if (fileExists) {
-                try {
-                    BufferedWriter buf = new BufferedWriter(new FileWriter(logFile, true));
-                    buf.append(text.trim());
-                    buf.append("\n");
-                    buf.newLine();
-                    buf.close();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
-        } catch (Exception e) {
+        }
+
+        try (BufferedWriter buf = new BufferedWriter(new FileWriter(logFile, true))) {
+            buf.append(text.trim()).append("\n");
+            buf.newLine();
+        } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
     public static void checkDirectoryExist(String directoryName) {
         File dir = new File(Environment.getExternalStorageDirectory(), directoryName);
-        if (!dir.exists()) {
-            dir.mkdirs();
-        }
+        if (!dir.exists()) dir.mkdirs();
     }
 
     public static String getTimeMillisecondFormat() {
         return convertDate(new Date().getTime(), Constants.DATE_FORMAT);
     }
 
-    public static String convertDate(long dateToConvert, String ddMmFormat) {
-        Date date = new Date(dateToConvert);
-        SimpleDateFormat df2 = new SimpleDateFormat(ddMmFormat, Locale.getDefault());
-        return df2.format(date);
+    public static String convertDate(long dateToConvert, String format) {
+        return new SimpleDateFormat(format, Locale.getDefault()).format(new Date(dateToConvert));
     }
 
     public static boolean validIP(String ip) {
+        if (ip == null || ip.isEmpty()) return false;
+        String[] parts = ip.split("\\.");
+        if (parts.length != 4) return false;
+
         try {
-            if (ip == null || ip.isEmpty()) {
-                return false;
-            }
-
-            String[] parts = ip.split("\\.");
-            if (parts.length != 4) {
-                return false;
-            }
-
             for (String s : parts) {
                 int i = Integer.parseInt(s);
-                if ((i < 0) || (i > 255)) {
-                    return false;
-                }
+                if (i < 0 || i > 255) return false;
             }
             return !ip.endsWith(Constants.DOT);
-        } catch (NumberFormatException nfe) {
+        } catch (NumberFormatException e) {
             return false;
         }
     }
@@ -161,12 +134,12 @@ public class Utils {
         }
     }
 
-    public static void broadcastMessageToFlutter(Context mApplicationContext, Message message) {
+    public static void broadcastMessageToFlutter(Context context, Message message) {
 
-        Utils.addLogInStorage(" Action: receiveMessageFromServer, Content: " + message.toXML().toString());
+        addLogInStorage("Action: receiveMessageFromServer, Content: " + message.toXML());
 
         message = parseEventStanzaMessage(message);
-        String META_TEXT = Constants.MESSAGE;
+        String metaText = Constants.MESSAGE;
         String body = message.getBody();
         String from = message.getFrom().toString();
         String msgId = message.getStanzaId();
@@ -188,48 +161,42 @@ public class Utils {
         }
 
         if (message.hasExtension(DeliveryReceipt.ELEMENT, DeliveryReceipt.NAMESPACE)) {
-            DeliveryReceipt dr = DeliveryReceipt.from((Message) message);
+            DeliveryReceipt dr = DeliveryReceipt.from(message);
             msgId = dr.getId();
-            META_TEXT = Constants.DELIVERY_ACK;
+            metaText = Constants.DELIVERY_ACK;
         }
 
         ChatState chatState = null;
-
         if (message.hasExtension(ChatStateExtension.NAMESPACE)) {
-            META_TEXT = Constants.CHATSTATE;
+            metaText = Constants.CHATSTATE;
             ChatStateExtension chatStateExtension = (ChatStateExtension) message.getExtension(ChatStateExtension.NAMESPACE);
             chatState = chatStateExtension.getChatState();
         }
 
-        String mediaURL = "";
-
         String delayTime = Constants.ZERO;
         if (message.hasExtension(Constants.URN_XMPP_RECEIPTS)) {
-            DelayInformation DelayTimeElement = (DelayInformation) message.getExtension(Constants.URN_XMPP_DELAY);
-            if (DelayTimeElement != null && DelayTimeElement.getStamp() != null) {
-                delayTime = DelayTimeElement.getStamp().toString();
+            DelayInformation delayInfo = (DelayInformation) message.getExtension(Constants.URN_XMPP_DELAY);
+            if (delayInfo != null && delayInfo.getStamp() != null) {
+                delayTime = delayInfo.getStamp().toString();
             }
         }
 
         if (!from.equals(FlutterXmppConnection.mUsername)) {
-            //Bundle up the intent and send the broadcast.
             Intent intent = new Intent(Constants.RECEIVE_MESSAGE);
-            intent.setPackage(mApplicationContext.getPackageName());
+            intent.setPackage(context.getPackageName());
             intent.putExtra(Constants.BUNDLE_FROM_JID, from);
             intent.putExtra(Constants.BUNDLE_MESSAGE_BODY, body);
             intent.putExtra(Constants.BUNDLE_MESSAGE_PARAMS, msgId);
             intent.putExtra(Constants.BUNDLE_MESSAGE_TYPE, message.getType().toString());
             intent.putExtra(Constants.BUNDLE_MESSAGE_SENDER_JID, from);
-            intent.putExtra(Constants.MEDIA_URL, mediaURL);
             intent.putExtra(Constants.CUSTOM_TEXT, customText);
-            intent.putExtra(Constants.META_TEXT, META_TEXT);
+            intent.putExtra(Constants.META_TEXT, metaText);
             intent.putExtra(Constants.time, time);
             intent.putExtra(Constants.DELAY_TIME, delayTime);
             if (chatState != null) {
                 intent.putExtra(Constants.CHATSTATE_TYPE, chatState.toString().toLowerCase());
             }
-
-            mApplicationContext.sendBroadcast(intent);
+            context.sendBroadcast(intent);
         }
     }
 
@@ -238,16 +205,13 @@ public class Utils {
             EventElement eventElement = message.getExtension(Constants.event, Constants.eventPubSubNameSpace);
             if (eventElement != null) {
                 List<ExtensionElement> itemExtensions = eventElement.getExtensions();
-                for (int i = 0; i < itemExtensions.size(); i++) {
-                    ItemsExtension itemsExtension = (ItemsExtension) itemExtensions.get(i);
+                for (ExtensionElement ext : itemExtensions) {
+                    ItemsExtension itemsExtension = (ItemsExtension) ext;
                     List<?> items = itemsExtension.getItems();
-                    for (int j = 0; j < items.size(); j++) {
-                        PayloadItem<?> it = (PayloadItem<?>) items.get(j);
-                        SimplePayload payloadElement = (SimplePayload) it.getPayload();
-
-                        String xmlStanza = (String) payloadElement.toXML();
-
-                        message = (Message) PacketParserUtils.parseStanza(xmlStanza);
+                    for (Object obj : items) {
+                        PayloadItem<?> payloadItem = (PayloadItem<?>) obj;
+                        SimplePayload payload = (SimplePayload) payloadItem.getPayload();
+                        message = (Message) PacketParserUtils.parseStanza((String) payload.toXML());
                     }
                 }
             }
@@ -257,36 +221,28 @@ public class Utils {
         return message;
     }
 
-    public static void sendBroadcast() {
-
-    }
-
-    public static void broadcastSuccessMessageToFlutter(Context mApplicationContext, SuccessState successState, String jid) {
-
-        //Bundle up the intent and send the broadcast.
+    public static void broadcastSuccessMessageToFlutter(Context context, SuccessState state, String jid) {
         Intent intent = new Intent(Constants.SUCCESS_MESSAGE);
-        intent.setPackage(mApplicationContext.getPackageName());
-        intent.putExtra(Constants.BUNDLE_SUCCESS_TYPE, successState.toString());
+        intent.setPackage(context.getPackageName());
+        intent.putExtra(Constants.BUNDLE_SUCCESS_TYPE, state.toString());
         intent.putExtra(Constants.FROM, jid);
-        mApplicationContext.sendBroadcast(intent);
+        context.sendBroadcast(intent);
     }
 
-    public static void broadcastErrorMessageToFlutter(Context mApplicationContext, ErrorState errorState, String exception, String jid) {
-
+    public static void broadcastErrorMessageToFlutter(Context context, ErrorState state, String exception, String jid) {
         Intent intent = new Intent(Constants.ERROR_MESSAGE);
-        intent.setPackage(mApplicationContext.getPackageName());
+        intent.setPackage(context.getPackageName());
         intent.putExtra(Constants.FROM, jid);
         intent.putExtra(Constants.BUNDLE_EXCEPTION, exception);
-        intent.putExtra(Constants.BUNDLE_ERROR_TYPE, errorState.toString());
-        mApplicationContext.sendBroadcast(intent);
+        intent.putExtra(Constants.BUNDLE_ERROR_TYPE, state.toString());
+        context.sendBroadcast(intent);
     }
 
-    public static void broadcastConnectionMessageToFlutter(Context mApplicationContext, ConnectionState connectionState, String errorMessage) {
-
+    public static void broadcastConnectionMessageToFlutter(Context context, ConnectionState state, String errorMessage) {
         Intent intent = new Intent(Constants.CONNECTION_STATE_MESSAGE);
-        intent.setPackage(mApplicationContext.getPackageName());
-        intent.putExtra(Constants.BUNDLE_CONNECTION_TYPE, connectionState.toString());
+        intent.setPackage(context.getPackageName());
+        intent.putExtra(Constants.BUNDLE_CONNECTION_TYPE, state.toString());
         intent.putExtra(Constants.BUNDLE_CONNECTION_ERROR, errorMessage);
-        mApplicationContext.sendBroadcast(intent);
+        context.sendBroadcast(intent);
     }
 }
