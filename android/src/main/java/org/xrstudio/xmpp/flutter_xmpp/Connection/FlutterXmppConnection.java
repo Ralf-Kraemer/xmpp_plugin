@@ -16,9 +16,13 @@ import org.jivesoftware.smackx.chatstates.ChatState;
 import org.jivesoftware.smackx.chatstates.packet.ChatStateExtension;
 import org.jivesoftware.smackx.iqlast.LastActivityManager;
 import org.jivesoftware.smackx.iqlast.packet.LastActivity;
+import org.jivesoftware.smackx.mam.MamManager;
+import org.jivesoftware.smackx.mam.MamQueryResult;
+import org.jivesoftware.smackx.mam.element.MamElements;
 import org.jivesoftware.smackx.muc.*;
 import org.jivesoftware.smackx.receipts.DeliveryReceipt;
 import org.jivesoftware.smackx.receipts.DeliveryReceiptRequest;
+import org.jivesoftware.smackx.forward.Forwarded;
 import org.jxmpp.jid.EntityBareJid;
 import org.jxmpp.jid.Jid;
 import org.jxmpp.jid.impl.JidCreate;
@@ -36,7 +40,9 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class FlutterXmppConnection implements ConnectionListener {
 
@@ -144,6 +150,31 @@ public class FlutterXmppConnection implements ConnectionListener {
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    // ------------------ Request Archived Messages ------------------
+    public List<Map<String, String>> requestArchivedMessages() {
+        List<Map<String, String>> archivedMessages = new ArrayList<>();
+        try {
+            if (mConnection == null || !mConnection.isConnected()) return archivedMessages;
+
+            MamManager mamManager = MamManager.getInstanceFor(mConnection);
+            MamQueryResult mamResult = mamManager.queryArchive(null, null);
+
+            for (Forwarded forwarded : mamResult.getForwardedMessages()) {
+                Message message = (Message) forwarded.getForwardedStanza();
+                Map<String, String> map = new HashMap<>();
+                map.put("id", message.getStanzaId());
+                map.put("body", message.getBody());
+                map.put("from", message.getFrom().toString());
+                map.put("to", message.getTo().toString());
+                map.put("type", message.getType().name());
+                archivedMessages.add(map);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return archivedMessages;
     }
 
     // ------------------ Connection Lifecycle ------------------

@@ -18,8 +18,9 @@ import java.io.IOException;
 
 public class FlutterXmppConnectionService extends Service {
 
-    private static LoggedInState sLoggedInState = LoggedInState.LOGGED_OUT;
-    private static ConnectionState sConnectionState = ConnectionState.DISCONNECTED;
+    // Static states accessible from plugin
+    public static LoggedInState sLoggedInState = LoggedInState.LOGGED_OUT;
+    public static ConnectionState sConnectionState = ConnectionState.DISCONNECTED;
 
     private String jidUser = "";
     private String password = "";
@@ -83,6 +84,7 @@ public class FlutterXmppConnectionService extends Service {
         super.onDestroy();
     }
 
+    // ------------------ Connection Management ------------------
     private void startConnection() {
         Utils.printLog("Starting XMPP Service connection...");
 
