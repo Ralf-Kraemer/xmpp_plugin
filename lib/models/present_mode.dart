@@ -12,23 +12,22 @@ class PresentModel {
   String? from;
 
   factory PresentModel.fromJson(dynamic json) {
-    if (json == null || json is! Map<String, dynamic>) {
+    if (json is! Map<String, dynamic>) {
       return PresentModel();
     }
 
+    final type = json['type'];
+    final mode = json['mode'];
+
     return PresentModel(
-      presenceType: json['type'] != null
-          ? _getPresenceType(json['type'])
-          : null,
-      presenceMode: json['mode'] != null
-          ? _getPresenceMode(json['mode'])
-          : null,
-      from: json['from'],
+      presenceType: type is String ? _getPresenceType(type) : null,
+      presenceMode: mode is String ? _getPresenceMode(mode) : null,
+      from: json['from'] as String?,
     );
   }
 
   static PresenceType _getPresenceType(String presenceType) {
-    switch (presenceType) {
+    switch (presenceType.toLowerCase()) {
       case 'available':
         return PresenceType.available;
       case 'unavailable':
@@ -41,17 +40,16 @@ class PresentModel {
         return PresenceType.unsubscribe;
       case 'unsubscribed':
         return PresenceType.unsubscribed;
-      case 'error':
-        return PresenceType.error;
       case 'probe':
         return PresenceType.probe;
+      case 'error':
       default:
         return PresenceType.error;
     }
   }
 
   static PresenceMode _getPresenceMode(String presenceMode) {
-    switch (presenceMode) {
+    switch (presenceMode.toLowerCase()) {
       case 'chat':
         return PresenceMode.chat;
       case 'available':
@@ -68,8 +66,8 @@ class PresentModel {
   }
 
   Map<String, dynamic> toJson() => {
-        "presenceMode": presenceMode?.name,
-        "presenceType": presenceType?.name,
+        "type": presenceType?.name.toLowerCase(),
+        "mode": presenceMode?.name.toLowerCase(),
         "from": from,
       };
 }
